@@ -1,0 +1,168 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --surface-0: #0a0a0f;
+  --surface-1: #111118;
+  --surface-2: #1a1a24;
+  --surface-3: #232330;
+  --surface-4: #2d2d3d;
+  --surface-5: #38384a;
+  --brand: #7c3aed;
+  --brand-light: #a78bfa;
+  --text-primary: #f0f0f5;
+  --text-secondary: #9494a8;
+  --text-muted: #5a5a70;
+  --border: #2d2d3d;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--surface-4);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--surface-5);
+}
+
+/* Selection */
+::selection {
+  background: rgba(124, 58, 237, 0.3);
+  color: #fff;
+}
+
+/* Focus visible */
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* Utility classes */
+@layer components {
+  .glass {
+    background: rgba(17, 17, 24, 0.8);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(45, 45, 61, 0.5);
+  }
+
+  .glass-hover {
+    @apply glass transition-all duration-200;
+  }
+  .glass-hover:hover {
+    background: rgba(26, 26, 36, 0.9);
+    border-color: rgba(124, 58, 237, 0.3);
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5
+           bg-brand-500 hover:bg-brand-600 active:bg-brand-700
+           text-white font-medium text-sm
+           transition-all duration-150
+           shadow-lg shadow-brand-500/20;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5
+           bg-surface-3 hover:bg-surface-4 active:bg-surface-5
+           text-white/90 font-medium text-sm
+           border border-white/5 hover:border-white/10
+           transition-all duration-150;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2
+           hover:bg-surface-3 active:bg-surface-4
+           text-white/70 hover:text-white/90 font-medium text-sm
+           transition-all duration-150;
+  }
+
+  .card {
+    @apply bg-surface-1 border border-surface-4/50 rounded-xl;
+  }
+
+  .card-hover {
+    @apply card transition-all duration-200 hover:border-brand-500/30 hover:shadow-lg hover:shadow-brand-500/5;
+  }
+
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  .badge-green {
+    @apply badge bg-emerald-500/10 text-emerald-400 border border-emerald-500/20;
+  }
+
+  .badge-amber {
+    @apply badge bg-amber-500/10 text-amber-400 border border-amber-500/20;
+  }
+
+  .badge-red {
+    @apply badge bg-red-500/10 text-red-400 border border-red-500/20;
+  }
+
+  .badge-brand {
+    @apply badge bg-brand-500/10 text-brand-300 border border-brand-500/20;
+  }
+
+  .badge-cyan {
+    @apply badge bg-cyan-500/10 text-cyan-400 border border-cyan-500/20;
+  }
+
+  .input {
+    @apply w-full rounded-lg bg-surface-2 border border-surface-4 
+           px-4 py-2.5 text-sm text-white/90 placeholder:text-white/30
+           focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50
+           transition-all duration-150;
+  }
+
+  .timeline-track {
+    @apply h-12 rounded bg-surface-2 border border-surface-4/50 relative overflow-hidden;
+  }
+
+  .waveform-bar {
+    @apply inline-block w-0.5 bg-brand-400 rounded-full mx-px;
+  }
+}
+
+/* Animations */
+@keyframes waveform {
+  0%, 100% { height: 4px; }
+  50% { height: 20px; }
+}
+
+.animate-waveform {
+  animation: waveform 1.2s ease-in-out infinite;
+}
+
+.animate-waveform-delay-1 { animation-delay: 0.1s; }
+.animate-waveform-delay-2 { animation-delay: 0.2s; }
+.animate-waveform-delay-3 { animation-delay: 0.3s; }
+.animate-waveform-delay-4 { animation-delay: 0.4s; }
