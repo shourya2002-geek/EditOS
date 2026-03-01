@@ -22,6 +22,7 @@ export type DemoStepType =
   | 'type-chat'
   | 'send-chat'
   | 'wait'
+  | 'simulate-upload'
   | 'play-video'
   | 'pause-video'
   | 'toggle-preview'
@@ -143,10 +144,13 @@ const RESPONSE_SPEED: DemoAIResponse = {
 // Full demo sequence
 // ---------------------------------------------------------------------------
 export const DEMO_STEPS: DemoStep[] = [
-  // 1. Switch to AI Chat
-  { type: 'switch-tab', delay: 800, tab: 'ai-chat' },
+  // 1. Simulate video upload (fake progress bar for realism)
+  { type: 'simulate-upload', delay: 1000, duration: 2500 },
 
-  // 2. Type first prompt
+  // 2. Switch to AI Chat
+  { type: 'switch-tab', delay: 1200, tab: 'ai-chat' },
+
+  // 3. Type first prompt
   {
     type: 'type-chat',
     delay: 1000,

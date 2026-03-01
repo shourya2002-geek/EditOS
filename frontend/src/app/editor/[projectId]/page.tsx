@@ -15,7 +15,6 @@ import {
   ChevronRight, Send, MessageSquare, Download, Eye,
   Maximize2, Settings, SplitSquareHorizontal, Upload, CheckCircle2, Loader2,
   ArrowLeft, PlayCircle, StopCircle, Timer, Share2,
-  Clapperboard,
 } from 'lucide-react';
 
 type EditorTab = 'strategy' | 'timeline' | 'voice' | 'ai-chat' | 'history';
@@ -682,6 +681,30 @@ export default function EditorPage() {
           await wait(step.duration ?? 2000);
           break;
 
+        case 'simulate-upload':
+          // Fake upload progress bar for demo realism
+          setUploadProgress(0);
+          {
+            const totalMs = step.duration ?? 2500;
+            const ticks = 20;
+            const tickMs = totalMs / ticks;
+            for (let p = 1; p <= ticks; p++) {
+              if (demoAbortRef.current) break;
+              await wait(tickMs);
+              setUploadProgress(Math.min(Math.round((p / ticks) * 100), 100));
+            }
+          }
+          if (demoAbortRef.current) { setUploadProgress(null); break; }
+          // Mark as uploaded with a placeholder video URL
+          setIsUploaded(true);
+          setUploadProgress(null);
+          setVideoUrl('/demo-placeholder.mp4');
+          setChatMessages(prev => [...prev, {
+            role: 'assistant',
+            text: 'Video uploaded successfully! You can now describe what you want — I\'ll edit it for you.',
+          }]);
+          break;
+
         case 'play-video':
           setIsPlaying(true);
           break;
@@ -1011,21 +1034,6 @@ export default function EditorPage() {
 
   return (
     <div className="h-[calc(100vh-3.5rem)] flex flex-col -m-4 md:-m-6 animate-fade-in">
-      {/* Demo mode banner */}
-      {demoRunning && (
-        <div className="h-7 bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/20 border-b border-amber-500/30 flex items-center justify-center gap-2 shrink-0 relative z-50">
-          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-          <span className="text-[11px] font-semibold text-amber-300 tracking-wide uppercase">Demo Mode — Auto-Playing</span>
-          <span className="text-[10px] text-amber-400/60">Step {demoStepIndex + 1} / {DEMO_STEPS.length}</span>
-          <button
-            onClick={stopDemo}
-            className="absolute right-3 text-[10px] text-amber-400/80 hover:text-white transition-colors underline"
-          >
-            Stop
-          </button>
-        </div>
-      )}
-
       {/* Toolbar */}
       <div className="h-12 bg-surface-1 border-b border-surface-4/50 flex items-center justify-between px-3 md:px-4 shrink-0 overflow-x-auto">
         <div className="flex items-center gap-1">
@@ -1084,26 +1092,14 @@ export default function EditorPage() {
             </>
           )}
 
-          {/* Demo Mode Toggle */}
-          {demoRunning ? (
-            <button
-              onClick={stopDemo}
-              className="text-[10px] py-1.5 px-3 rounded-lg bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500/30 transition-all flex items-center gap-1.5 animate-pulse"
-              title="Stop demo"
-            >
-              <StopCircle className="w-3.5 h-3.5" />
-              Demo Running ({demoStepIndex + 1}/{DEMO_STEPS.length})
-            </button>
-          ) : (
-            <button
-              onClick={() => { setDemoMode(true); runDemo(); }}
-              className="text-[10px] py-1.5 px-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 transition-all flex items-center gap-1.5"
-              title="Start automated demo — records a deterministic walkthrough"
-            >
-              <Clapperboard className="w-3.5 h-3.5" />
-              Demo
-            </button>
-          )}
+          {/* Small red dot — starts/stops demo */}
+          <button
+            onClick={() => demoRunning ? stopDemo() : (() => { setDemoMode(true); runDemo(); })()}
+            className={`w-3 h-3 rounded-full shrink-0 transition-all ${
+              demoRunning ? 'bg-red-500 shadow-lg shadow-red-500/40 scale-110' : 'bg-red-500/70 hover:bg-red-500 hover:scale-110'
+            }`}
+            title=""
+          />
 
           <button
             onClick={() => setShowShareModal(true)}
