@@ -94,7 +94,7 @@ export default function RenderPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="card p-4">
           <div className="flex items-center gap-2 mb-1">
             <Layers className="w-4 h-4 text-white/30" />

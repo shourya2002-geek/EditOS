@@ -16,13 +16,18 @@ class ApiClient {
     options: RequestInit = {},
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
+    const headers: Record<string, string> = {
+      'x-creator-id': 'dev-creator',
+      ...(options.headers as Record<string, string>),
+    };
+    // Only set Content-Type: application/json when there is a body.
+    // Fastify rejects empty body with JSON content-type (400).
+    if (options.body) {
+      headers['Content-Type'] = 'application/json';
+    }
     const res = await fetch(url, {
       ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        'x-creator-id': 'dev-creator',
-        ...options.headers,
-      },
+      headers,
     });
 
     if (!res.ok) {
@@ -103,7 +108,7 @@ class ApiClient {
   }
 
   async endSession(id: string) {
-    return this.request<any>(`/sessions/${id}/end`, { method: 'POST' });
+    return this.request<any>(`/sessions/${id}/end`, { method: 'POST', body: JSON.stringify({}) });
   }
 
   // --- Strategies ---
@@ -128,12 +133,14 @@ class ApiClient {
   async applyStrategy(strategyId: string) {
     return this.request<any>(`/strategies/${strategyId}/apply`, {
       method: 'POST',
+      body: JSON.stringify({}),
     });
   }
 
   async undoStrategy(strategyId: string) {
     return this.request<any>(`/strategies/${strategyId}/undo`, {
       method: 'POST',
+      body: JSON.stringify({}),
     });
   }
 

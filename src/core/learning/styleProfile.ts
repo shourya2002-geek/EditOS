@@ -589,7 +589,7 @@ export class StrategyAdaptationEngine {
    */
   adapt(creatorId: string, baseStrategy: EditingStrategy): EditingStrategy {
     const profile = this.profileManager.getProfile(creatorId);
-    const adapted = structuredClone(baseStrategy);
+    const adapted = JSON.parse(JSON.stringify(baseStrategy)) as EditingStrategy;
 
     // Adapt pacing via style.pacing
     if (adapted.style?.pacing) {

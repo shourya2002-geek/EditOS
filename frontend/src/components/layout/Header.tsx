@@ -22,21 +22,21 @@ export function Header() {
   }, []);
 
   return (
-    <header className="h-14 border-b border-surface-4/50 bg-surface-1/80 backdrop-blur-md flex items-center justify-between px-6 sticky top-0 z-40">
-      {/* Search */}
-      <div className="relative w-80">
+    <header className="h-14 border-b border-surface-4/50 bg-surface-1/80 backdrop-blur-md flex items-center justify-between px-4 md:px-6 sticky top-0 z-40">
+      {/* Search — hidden on small screens, visible on md+ */}
+      <div className="relative w-48 md:w-80 ml-10 lg:ml-0">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
         <input
           type="text"
-          placeholder="Search projects, strategies..."
+          placeholder="Search projects..."
           className="input pl-10 py-2 text-sm bg-surface-2/50"
         />
       </div>
 
       {/* Right side */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 md:gap-4">
         {/* Server Status */}
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-2 border border-surface-4/50">
+        <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-2 border border-surface-4/50">
           <Wifi className={`w-3.5 h-3.5 ${
             serverStatus === 'connected' ? 'text-emerald-400' :
             serverStatus === 'disconnected' ? 'text-red-400' :
@@ -46,6 +46,15 @@ export function Header() {
             {serverStatus === 'connected' ? 'Engine Online' :
              serverStatus === 'disconnected' ? 'Disconnected' : 'Checking...'}
           </span>
+        </div>
+
+        {/* Mobile status dot */}
+        <div className="sm:hidden">
+          <Wifi className={`w-4 h-4 ${
+            serverStatus === 'connected' ? 'text-emerald-400' :
+            serverStatus === 'disconnected' ? 'text-red-400' :
+            'text-amber-400 animate-pulse'
+          }`} />
         </div>
 
         {/* Notifications */}

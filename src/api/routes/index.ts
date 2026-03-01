@@ -300,7 +300,7 @@ export async function registerStrategyRoutes(app: FastifyInstance): Promise<void
   app.post('/api/v1/strategies/generate', async (req: FastifyRequest, reply: FastifyReply) => {
     const body = req.body as {
       projectId: string;
-      creatorId: string;
+      creatorId?: string;
       intent: string;
       platform?: string;
     };
@@ -309,9 +309,15 @@ export async function registerStrategyRoutes(app: FastifyInstance): Promise<void
       return reply.status(400).send({ error: 'projectId and intent are required' });
     }
 
+    // Fall back to middleware-set creatorId if not in body
+    const creatorId = body.creatorId ?? (req as any).creatorId ?? 'dev-creator';
+
     const strategyService = (app as any).strategyService;
     if (strategyService) {
-      const result = await strategyService.generateFromIntent(body);
+      const result = await strategyService.generateFromIntent({
+        ...body,
+        creatorId,
+      });
       return reply.send(result);
     }
 
@@ -363,8 +369,8 @@ export async function registerStrategyRoutes(app: FastifyInstance): Promise<void
 // Render routes
 // ---------------------------------------------------------------------------
 export async function registerRenderRoutes(app: FastifyInstance): Promise<void> {
-  // Submit render job
-  app.post('/api/v1/render', async (req: FastifyRequest, reply: FastifyReply) => {
+  // Submit render job  (POST /render and POST /render/submit for compat)
+  const submitHandler = async (req: FastifyRequest, reply: FastifyReply) => {
     const body = req.body as {
       projectId: string;
       strategyId: string;
@@ -383,6 +389,28 @@ export async function registerRenderRoutes(app: FastifyInstance): Promise<void> 
     }
 
     return reply.status(503).send({ error: 'Render service unavailable' });
+  };
+
+  app.post('/api/v1/render', submitHandler);
+  app.post('/api/v1/render/submit', submitHandler);
+
+  // Get render queue stats (MUST be before :jobId so it doesn't match as param)
+  app.get('/api/v1/render/stats', async (_req: FastifyRequest, reply: FastifyReply) => {
+    const renderService = (app as any).renderService;
+    if (renderService) {
+      return reply.send(await renderService.getStats());
+    }
+    return reply.send({ queued: 0, processing: 0, completed: 0 });
+  });
+
+  // List all jobs in queue (for /render/queue frontend route)
+  app.get('/api/v1/render/queue', async (_req: FastifyRequest, reply: FastifyReply) => {
+    const renderService = (app as any).renderService;
+    if (renderService) {
+      const stats = await renderService.getStats();
+      return reply.send({ jobs: [], ...stats });
+    }
+    return reply.send({ jobs: [], queued: 0, processing: 0, completed: 0 });
   });
 
   // Get render job status
@@ -410,15 +438,6 @@ export async function registerRenderRoutes(app: FastifyInstance): Promise<void> 
     }
 
     return reply.status(503).send({ error: 'Render service unavailable' });
-  });
-
-  // Get render queue stats
-  app.get('/api/v1/render/stats', async (_req: FastifyRequest, reply: FastifyReply) => {
-    const renderService = (app as any).renderService;
-    if (renderService) {
-      return reply.send(await renderService.getStats());
-    }
-    return reply.send({ queued: 0, processing: 0, completed: 0 });
   });
 }
 
@@ -486,6 +505,17 @@ export async function registerCreatorRoutes(app: FastifyInstance): Promise<void>
 // Experiment routes
 // ---------------------------------------------------------------------------
 export async function registerExperimentRoutes(app: FastifyInstance): Promise<void> {
+  // List experiments
+  app.get('/api/v1/experiments', async (req: FastifyRequest, reply: FastifyReply) => {
+    const { creatorId } = req.query as { creatorId?: string };
+    const experimentService = (app as any).experimentService;
+    if (experimentService) {
+      const experiments = experimentService.listAll(creatorId ?? (req as any).creatorId);
+      return reply.send({ experiments });
+    }
+    return reply.send({ experiments: [] });
+  });
+
   // Create experiment
   app.post('/api/v1/experiments', async (req: FastifyRequest, reply: FastifyReply) => {
     const body = req.body as {
@@ -608,6 +638,19 @@ export async function registerCollabRoutes(app: FastifyInstance): Promise<void> 
 // ---------------------------------------------------------------------------
 // Register all routes
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Metrics route
+// ---------------------------------------------------------------------------
+export async function registerMetricsRoutes(app: FastifyInstance): Promise<void> {
+  app.get('/api/v1/metrics', async (_req: FastifyRequest, reply: FastifyReply) => {
+    const metricsService = (app as any).metricsService;
+    if (metricsService) {
+      return reply.send(metricsService.getMetrics());
+    }
+    return reply.send({});
+  });
+}
+
 export async function registerAllRoutes(app: FastifyInstance): Promise<void> {
   await registerHealthRoutes(app);
   await registerProjectRoutes(app);
@@ -617,4 +660,5 @@ export async function registerAllRoutes(app: FastifyInstance): Promise<void> {
   await registerCreatorRoutes(app);
   await registerExperimentRoutes(app);
   await registerCollabRoutes(app);
+  await registerMetricsRoutes(app);
 }

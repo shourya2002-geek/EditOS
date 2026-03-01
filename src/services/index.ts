@@ -439,6 +439,14 @@ export class ExperimentService {
   recordResult(experimentId: string, variantId: string, analytics: any): void {
     this.engine.recordResult(experimentId, variantId, analytics);
   }
+
+  listAll(creatorId?: string): any[] {
+    if (creatorId) {
+      return this.engine.getActiveExperiments(creatorId);
+    }
+    // Return all experiments (no filter method exists, so return active for default creator)
+    return this.engine.getActiveExperiments(creatorId ?? 'dev-creator');
+  }
 }
 
 // ---------------------------------------------------------------------------

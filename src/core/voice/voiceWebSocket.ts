@@ -54,6 +54,32 @@ export class VoiceWebSocketHandler {
         }));
       }
     });
+
+    // Forward final transcripts to the client
+    this.pipeline.on('transcript_final', async (event) => {
+      const ws = this.connections.get(event.sessionId);
+      if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({
+          type: 'transcript_final',
+          payload: event.data,
+          sessionId: event.sessionId,
+          timestamp: event.timestamp,
+        }));
+      }
+    });
+
+    // Forward detected commands to the client
+    this.pipeline.on('command_detected', async (event) => {
+      const ws = this.connections.get(event.sessionId);
+      if (ws && ws.readyState === 1) {
+        ws.send(JSON.stringify({
+          type: 'command',
+          payload: event.data,
+          sessionId: event.sessionId,
+          timestamp: event.timestamp,
+        }));
+      }
+    });
   }
 
   /**
