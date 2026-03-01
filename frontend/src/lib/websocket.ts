@@ -84,90 +84,123 @@ export function useWebSocket(path: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Voice-specific WebSocket hook
+// Voice-specific hook — uses browser SpeechRecognition API for live STT
 // ---------------------------------------------------------------------------
+
+// TypeScript declarations for the Web Speech API
+interface SpeechRecognitionEvent extends Event {
+  resultIndex: number;
+  results: SpeechRecognitionResultList;
+}
+interface SpeechRecognitionResultList {
+  length: number;
+  item(index: number): SpeechRecognitionResult;
+  [index: number]: SpeechRecognitionResult;
+}
+interface SpeechRecognitionResult {
+  isFinal: boolean;
+  length: number;
+  item(index: number): SpeechRecognitionAlternative;
+  [index: number]: SpeechRecognitionAlternative;
+}
+interface SpeechRecognitionAlternative {
+  transcript: string;
+  confidence: number;
+}
+
 export function useVoiceWebSocket() {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [commands, setCommands] = useState<Array<{ text: string; timestamp: number }>>([]);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-
-  const ws = useWebSocket('/ws/voice');
-  // Keep a stable ref to ws so effects don't re-fire on every render
-  const wsRef = useRef(ws);
-  wsRef.current = ws;
-
-  // Register message handlers ONCE (empty deps)
-  useEffect(() => {
-    const unsubscribe = wsRef.current.onMessage((data: any) => {
-      // Backend sends: { type: 'transcript', payload: { text, isFinal }, ... }
-      if (data.type === 'transcript' || data.type === 'transcript_final') {
-        const text = data.payload?.text ?? data.text ?? '';
-        setTranscript(text);
-      }
-      // Backend sends: { type: 'command', payload: { type, transcript }, ... }
-      if (data.type === 'command') {
-        const text = data.payload?.transcript ?? data.text ?? '';
-        setCommands((prev) => [...prev, { text, timestamp: Date.now() }]);
-      }
-      // Backend sends: { type: 'feedback', payload: {...}, ... }
-      if (data.type === 'feedback') {
-        const text = data.payload?.message ?? data.payload?.text ?? JSON.stringify(data.payload);
-        setCommands((prev) => [...prev, { text: `[feedback] ${text}`, timestamp: Date.now() }]);
-      }
-      // Backend sends: { type: 'status', payload: { status: 'ready' }, ... }
-      if (data.type === 'status') {
-        console.log('[voice] status:', data.payload?.status);
-      }
-    });
-    return unsubscribe;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const recognitionRef = useRef<any>(null);
+  const restartingRef = useRef(false);
 
   const startListening = useCallback(async () => {
+    // Grab the SpeechRecognition constructor (Chrome / Edge / Safari)
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      console.error('SpeechRecognition API not available in this browser');
+      alert('Voice commands require Chrome, Edge, or Safari. Please use a supported browser.');
+      return;
+    }
+
+    // Request mic permission early (helps surface permission prompt)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-
-      // Try audio/webm, fall back to default
-      let mimeType = 'audio/webm';
-      if (typeof MediaRecorder !== 'undefined' && !MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = '';
-      }
-
-      const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          wsRef.current.send(event.data);
-        }
-      };
-
-      // Connect WebSocket first, then start recording
-      wsRef.current.connect();
-      mediaRecorder.start(250);
-      mediaRecorderRef.current = mediaRecorder;
-      setIsListening(true);
-    } catch (err) {
-      console.error('Microphone access denied:', err);
+      // We don't need the stream ourselves — SpeechRecognition handles it.
+      // Stop immediately so we don't hold the mic open twice.
+      stream.getTracks().forEach((t) => t.stop());
+    } catch {
+      console.error('Microphone permission denied');
+      return;
     }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;       // keep listening until stopped
+    recognition.interimResults = true;   // emit partial transcripts
+    recognition.lang = 'en-US';
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        const text = result[0].transcript.trim();
+
+        if (result.isFinal) {
+          // Final transcript → add as a command which triggers sendToAI
+          if (text) {
+            setCommands((prev) => [...prev, { text, timestamp: Date.now() }]);
+            setTranscript('');
+          }
+        } else {
+          interim += text + ' ';
+        }
+      }
+      if (interim) {
+        setTranscript(interim.trim());
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      console.warn('[voice] SpeechRecognition error:', event.error);
+      // 'no-speech' and 'aborted' are non-fatal; restart silently
+      if (event.error === 'no-speech' || event.error === 'aborted') return;
+      // For network / not-allowed errors, stop
+      setIsListening(false);
+    };
+
+    // Continuous mode can stop on its own after silence. Auto-restart.
+    recognition.onend = () => {
+      if (restartingRef.current) return; // avoid re-entrant restart
+      // If we still want to be listening, restart
+      if (recognitionRef.current === recognition) {
+        try {
+          restartingRef.current = true;
+          recognition.start();
+          setTimeout(() => { restartingRef.current = false; }, 200);
+        } catch {
+          // already running or disposed
+          restartingRef.current = false;
+        }
+      }
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
   }, []);
 
   const stopListening = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
+    const recognition = recognitionRef.current;
+    recognitionRef.current = null; // signal onend not to restart
+    if (recognition) {
+      try { recognition.stop(); } catch { /* already stopped */ }
     }
-    mediaRecorderRef.current = null;
-
-    // Stop all audio tracks
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-
-    wsRef.current.disconnect();
     setIsListening(false);
+    setTranscript('');
   }, []);
 
   return {
@@ -176,7 +209,7 @@ export function useVoiceWebSocket() {
     commands,
     startListening,
     stopListening,
-    wsStatus: ws.status,
+    wsStatus: isListening ? ('connected' as const) : ('disconnected' as const),
   };
 }
 

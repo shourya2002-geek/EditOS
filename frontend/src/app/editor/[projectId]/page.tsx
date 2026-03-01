@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useSyncExternalStore } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useVoiceWebSocket } from '@/lib/websocket';
+import { ClientEditStack } from '@/lib/editStack';
+import type { EditCommit, EditOperation } from '@/lib/editStack';
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
   Mic, MicOff, Wand2, Undo2, Redo2, ZoomIn, ZoomOut,
@@ -13,7 +15,7 @@ import {
   ArrowLeft, PlayCircle, StopCircle,
 } from 'lucide-react';
 
-type EditorTab = 'strategy' | 'timeline' | 'voice' | 'ai-chat';
+type EditorTab = 'strategy' | 'timeline' | 'voice' | 'ai-chat' | 'history';
 
 export default function EditorPage() {
   const params = useParams();
@@ -44,9 +46,32 @@ export default function EditorPage() {
   const [appliedStrategy, setAppliedStrategy] = useState<any>(null);
   const [appliedEffects, setAppliedEffects] = useState<string[]>([]);
 
-  // Edit history for undo / redo
-  const [editHistory, setEditHistory] = useState<any[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
+  // Edit Stack — non-destructive operation management with conflict resolution
+  const editStackRef = useRef<ClientEditStack>(null!);
+  if (!editStackRef.current) editStackRef.current = new ClientEditStack();
+  const editStack = editStackRef.current;
+
+  // Subscribe to stack changes — recomputes effective ops on every commit/undo/redo/toggle
+  const effectiveOps = useSyncExternalStore(
+    editStack.subscribe,
+    editStack.computeEffective,
+    () => [] as EditOperation[],
+  );
+  const commits = useSyncExternalStore(
+    editStack.subscribe,
+    editStack.getCommits,
+    () => [] as readonly EditCommit[],
+  );
+  const canUndo = useSyncExternalStore(
+    editStack.subscribe,
+    editStack.getCanUndo,
+    () => false,
+  );
+  const canRedo = useSyncExternalStore(
+    editStack.subscribe,
+    editStack.getCanRedo,
+    () => false,
+  );
 
   // Clipboard for cut
   const [cutRange, setCutRange] = useState<{ startMs: number; endMs: number } | null>(null);
@@ -58,8 +83,8 @@ export default function EditorPage() {
   const [chatInput, setChatInput] = useState('');
   const [conversationId] = useState(() => `conv_${Date.now()}`);
 
-  // AI-applied operations (from chat/voice) — shown on timeline
-  const [appliedOps, setAppliedOps] = useState<any[]>([]);
+  // appliedOps is now derived from the edit stack's effective operations
+  const appliedOps = effectiveOps;
 
   // Voice
   const voice = useVoiceWebSocket();
@@ -327,20 +352,72 @@ export default function EditorPage() {
       // Show AI response in chat
       setChatMessages(prev => [...prev, { role: 'assistant', text: result.message }]);
 
-      // If the AI returned operations, apply them
+      // Handle "reset_all" operation — clears entire edit stack
+      // Check operations array AND strategyName as fallback (Mistral sometimes puts it there)
+      const isReset = result.operations?.some((op: any) => op.type === 'reset_all') ||
+        /^reset/i.test(result.strategyName ?? '');
+      if (isReset) {
+        editStack.clearAll();
+        setAppliedStrategy(null);
+        setAppliedEffects([]);
+        setChatMessages(prev => [...prev, { role: 'assistant', text: '🗑️ All edits cleared. Starting fresh!' }]);
+        return;
+      }
+
+      // If the AI returned operations, push them as a commit to the edit stack
       if (result.operations && result.operations.length > 0) {
-        const newOps = result.operations.map((op: any) => ({
-          ...op,
-          _startMs: op.startMs ?? 0,
-          _endMs: op.endMs ?? effectiveDuration,
-        }));
-        setAppliedOps(prev => [...prev, ...newOps]);
-        setAppliedEffects(prev => {
-          const newTypes = newOps.map((o: any) => o.type);
-          return [...new Set([...prev, ...newTypes])];
-        });
-        // Push to undo history
-        pushHistory(result.strategyName ?? 'AI edit', { ops: newOps, effects: newOps.map((o: any) => o.type) });
+        const dur = effectiveDuration || 60000;
+        const newOps = result.operations
+          .filter((op: any) => op.type !== 'reset_all') // filter stray reset_all
+          .map((op: any) => {
+            // Normalize timestamps — make sure every op has _startMs and _endMs
+            let startMs = op.startMs ?? 0;
+            let endMs = op.endMs ?? dur;
+
+            // Clamp to video bounds
+            startMs = Math.max(0, Math.min(startMs, dur));
+            endMs = Math.max(startMs, Math.min(endMs, dur));
+
+            // Type-specific defaults
+            if (op.type === 'trim_start') {
+              startMs = 0;
+              endMs = op.endMs ?? op.startMs ?? 0;
+            } else if (op.type === 'trim_end') {
+              startMs = op.startMs ?? dur;
+              endMs = dur;
+            } else if (op.type === 'fade_in') {
+              startMs = 0;
+              endMs = op.params?.durationMs ?? op.endMs ?? 1000;
+            } else if (op.type === 'fade_out') {
+              const fadeDur = op.params?.durationMs ?? 1000;
+              endMs = dur;
+              startMs = op.startMs ?? (dur - fadeDur);
+            } else if (op.type === 'silence_remove') {
+              startMs = 0;
+              endMs = dur;
+            } else if (op.type === 'split') {
+              endMs = startMs; // split is a point, not a range
+            }
+
+            return {
+              ...op,
+              startMs,
+              endMs,
+              _startMs: startMs,
+              _endMs: endMs,
+            };
+          });
+
+        // Push to the edit stack — conflict resolution happens automatically
+        const commit = editStack.push(
+          text,
+          newOps,
+          result.strategyName,
+        );
+
+        // Update applied effects from effective state
+        setAppliedEffects(editStack.computeEffectTypes());
+
         // Log in chat
         const opSummary = newOps.map((o: any) => `${o.type} (${formatTime(o._startMs)}–${formatTime(o._endMs)})`).join(', ');
         setChatMessages(prev => [...prev, { role: 'assistant', text: `✅ Applied: ${opSummary}` }]);
@@ -408,57 +485,28 @@ export default function EditorPage() {
   }, []);
 
   // -----------------------------------------------------------------------
-  // Undo / Redo
+  // Undo / Redo — powered by EditStack
   // -----------------------------------------------------------------------
   const pushHistory = useCallback((label: string, data: any) => {
-    setEditHistory(prev => {
-      const trimmed = prev.slice(0, historyIndex + 1);
-      return [...trimmed, { label, data, timestamp: Date.now() }];
-    });
-    setHistoryIndex(prev => prev + 1);
-  }, [historyIndex]);
+    // Legacy: pushHistory is only used by the strategy tab "Apply Strategy" button.
+    // For AI chat/voice, commits go through editStack.push() directly.
+  }, []);
 
   const handleUndo = useCallback(() => {
-    if (historyIndex < 0) return;
-    const entry = editHistory[historyIndex];
-    // Remove the ops from this entry
-    if (entry?.data?.ops) {
-      setAppliedOps(prev => {
-        const opsToRemove = entry.data.ops;
-        // Remove the last N ops matching this entry
-        const result = [...prev];
-        for (let k = opsToRemove.length - 1; k >= 0; k--) {
-          const idx = result.lastIndexOf(opsToRemove[k]);
-          if (idx >= 0) result.splice(idx, 1);
-        }
-        return result;
-      });
+    const undone = editStack.undo();
+    if (undone) {
+      setAppliedEffects(editStack.computeEffectTypes());
+      setChatMessages(prev => [...prev, { role: 'assistant', text: `↩️ Undid: "${undone.prompt}"` }]);
     }
-    if (entry?.data?.strategy) {
-      setAppliedStrategy(null);
-    }
-    // Recompute applied effects from remaining ops
-    setAppliedEffects(prev => {
-      // Will be recomputed from appliedOps
-      return prev;
-    });
-    setHistoryIndex(prev => prev - 1);
-    setChatMessages(prev => [...prev, { role: 'assistant', text: `↩️ Undid: ${entry?.label ?? 'action'}` }]);
-  }, [historyIndex, editHistory]);
+  }, [editStack]);
 
   const handleRedo = useCallback(() => {
-    if (historyIndex >= editHistory.length - 1) return;
-    const entry = editHistory[historyIndex + 1];
-    if (entry?.data?.ops) {
-      setAppliedOps(prev => [...prev, ...entry.data.ops]);
+    const redone = editStack.redo();
+    if (redone) {
+      setAppliedEffects(editStack.computeEffectTypes());
+      setChatMessages(prev => [...prev, { role: 'assistant', text: `↪️ Redid: "${redone.prompt}"` }]);
     }
-    if (entry?.data?.strategy) {
-      setAppliedStrategy(entry.data.strategy);
-      setAppliedEffects(entry.data.effects ?? []);
-    }
-    setHistoryIndex(prev => prev + 1);
-    setChatMessages(prev => [...prev, { role: 'assistant', text: `↪️ Redid: ${entry?.label ?? 'action'}` }]);
-  }, [historyIndex, editHistory]);
+  }, [editStack]);
 
   const handleCut = useCallback(() => {
     if (!videoRef.current) return;
@@ -553,8 +601,8 @@ export default function EditorPage() {
           <div className="w-px h-5 bg-surface-4 mx-1" />
           <span className="text-xs text-white/50 font-medium truncate max-w-[120px] md:max-w-[200px]">{project?.name ?? 'Untitled'}</span>
           <div className="w-px h-5 bg-surface-4 mx-1 hidden sm:block" />
-          <button onClick={handleUndo} disabled={historyIndex < 0} className="btn-ghost p-2 disabled:opacity-30" title="Undo"><Undo2 className="w-4 h-4" /></button>
-          <button onClick={handleRedo} disabled={historyIndex >= editHistory.length - 1} className="btn-ghost p-2 disabled:opacity-30" title="Redo"><Redo2 className="w-4 h-4" /></button>
+          <button onClick={handleUndo} disabled={!canUndo} className="btn-ghost p-2 disabled:opacity-30" title="Undo"><Undo2 className="w-4 h-4" /></button>
+          <button onClick={handleRedo} disabled={!canRedo} className="btn-ghost p-2 disabled:opacity-30" title="Redo"><Redo2 className="w-4 h-4" /></button>
           <div className="w-px h-5 bg-surface-4 mx-1 hidden sm:block" />
           <button onClick={handleCut} className="btn-ghost p-2 hidden sm:inline-flex" title="Cut at playhead"><Scissors className="w-4 h-4" /></button>
           <button onClick={handleSplit} className="btn-ghost p-2 hidden sm:inline-flex" title="Split at playhead"><SplitSquareHorizontal className="w-4 h-4" /></button>
@@ -640,8 +688,8 @@ export default function EditorPage() {
                 )}
                 {/* Compact status bar — single row, no overlap */}
                 {appliedOps.length > 0 && (
-                  <div className="absolute top-2 left-2 right-2 z-10 pointer-events-none">
-                    <div className="flex flex-wrap gap-1 max-w-full">
+                  <div className="absolute top-2 left-2 right-2 z-10">
+                    <div className="flex flex-wrap items-center gap-1 max-w-full">
                       {[...new Set(appliedOps.map(op => op.type))].map(t => {
                         const op = [...appliedOps].reverse().find((o: any) => o.type === t);
                         let label = t.replace('_', ' ');
@@ -661,11 +709,30 @@ export default function EditorPage() {
                           silence_remove: 'bg-teal-500/80',
                         };
                         return (
-                          <span key={t} className={`text-[9px] px-1.5 py-0.5 rounded ${colors[t] ?? 'bg-brand-500/80'} text-white font-medium`}>
-                            {label}
+                          <span
+                            key={t}
+                            className={`text-[9px] px-1.5 py-0.5 rounded ${colors[t] ?? 'bg-brand-500/80'} text-white font-medium pointer-events-auto cursor-pointer hover:opacity-70`}
+                            title={`Click to remove ${t}`}
+                            onClick={() => {
+                              // Remove all commits that contain this op type
+                              const toRemove = commits.filter(c =>
+                                c.enabled && c.operations.some(op => op.type === t)
+                              );
+                              for (const c of toRemove) editStack.remove(c.id);
+                              setAppliedEffects(editStack.computeEffectTypes());
+                            }}
+                          >
+                            {label} ×
                           </span>
                         );
                       })}
+                      <button
+                        className="text-[9px] px-1.5 py-0.5 rounded bg-white/20 text-white/80 font-medium pointer-events-auto cursor-pointer hover:bg-white/30 transition-colors"
+                        title="Clear all edits"
+                        onClick={() => { editStack.clearAll(); setAppliedEffects([]); }}
+                      >
+                        Clear All
+                      </button>
                     </div>
                   </div>
                 )}
@@ -855,6 +922,7 @@ export default function EditorPage() {
             {([
               { key: 'strategy' as const, label: 'Strategy', icon: Wand2 },
               { key: 'ai-chat' as const, label: 'AI Chat', icon: MessageSquare },
+              { key: 'history' as const, label: 'History', icon: Layers },
               { key: 'voice' as const, label: 'Voice', icon: Mic },
             ]).map((tab) => (
               <button
@@ -985,13 +1053,22 @@ export default function EditorPage() {
                             setApplying(true);
                             try {
                               const res = await api.applyStrategy(strategy.id);
-                              // Mark strategy as applied — this updates the timeline & video overlays
+                              // Push strategy operations into the edit stack
                               setAppliedStrategy(strategy);
-                              const effectTypes = (strategy.strategy?.operations ?? []).map((op: any) => op.type);
-                              setAppliedEffects(effectTypes);
-                              // Push to edit history for undo
-                              pushHistory('Apply strategy', { strategy, effects: effectTypes });
-                              setChatMessages((prev) => [...prev, { role: 'assistant', text: `✅ Strategy applied! ${res.operationCount ?? 0} operations executed. Timeline and video updated with: ${effectTypes.join(', ')}` }]);
+                              const ops = (strategy.strategy?.operations ?? []).map((op: any) => ({
+                                type: op.type,
+                                startMs: op.timeRange?.startMs ?? 0,
+                                endMs: op.timeRange?.endMs ?? effectiveDuration,
+                                _startMs: op.timeRange?.startMs ?? 0,
+                                _endMs: op.timeRange?.endMs ?? effectiveDuration,
+                                params: op.params ?? {},
+                                description: op.type,
+                              }));
+                              if (ops.length > 0) {
+                                editStack.push('Apply strategy', ops, 'Strategy');
+                              }
+                              setAppliedEffects(editStack.computeEffectTypes());
+                              setChatMessages((prev) => [...prev, { role: 'assistant', text: `✅ Strategy applied! ${res.operationCount ?? 0} operations executed. Timeline and video updated with: ${ops.map((o: any) => o.type).join(', ')}` }]);
                             } catch (err: any) {
                               setChatMessages((prev) => [...prev, { role: 'assistant', text: `Apply failed: ${err.message}` }]);
                             } finally {
@@ -1071,6 +1148,142 @@ export default function EditorPage() {
                     </button>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {activeTab === 'history' && (
+              <div className="p-4 space-y-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-semibold text-white/70">Edit History</h3>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={handleUndo}
+                      disabled={!canUndo}
+                      className="text-[10px] px-2 py-1 rounded bg-surface-3 border border-surface-4 text-white/50 hover:text-white/70 disabled:opacity-30 transition-all"
+                      title="Undo last edit"
+                    >
+                      <Undo2 className="w-3 h-3 inline mr-1" />Undo
+                    </button>
+                    <button
+                      onClick={handleRedo}
+                      disabled={!canRedo}
+                      className="text-[10px] px-2 py-1 rounded bg-surface-3 border border-surface-4 text-white/50 hover:text-white/70 disabled:opacity-30 transition-all"
+                      title="Redo"
+                    >
+                      <Redo2 className="w-3 h-3 inline mr-1" />Redo
+                    </button>
+                  </div>
+                </div>
+
+                {commits.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Layers className="w-8 h-8 text-white/10 mx-auto mb-3" />
+                    <p className="text-sm text-white/40">No edits yet</p>
+                    <p className="text-xs text-white/25 mt-1">Use AI Chat or Voice to start editing</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                      {[...commits].reverse().map((commit, idx) => {
+                        const opTypes = [...new Set(commit.operations.map(o => o.type))];
+                        const colors: Record<string, string> = {
+                          cut: 'border-red-500/40', trim_start: 'border-red-500/40', trim_end: 'border-red-500/40',
+                          speed: 'border-purple-500/40', zoom: 'border-blue-500/40',
+                          volume: 'border-emerald-500/40', color_grade: 'border-amber-500/40',
+                          caption: 'border-amber-500/40', music: 'border-pink-500/40',
+                          fade_in: 'border-indigo-500/40', fade_out: 'border-indigo-500/40',
+                          silence_remove: 'border-teal-500/40',
+                        };
+                        const borderColor = colors[opTypes[0]] ?? 'border-brand-500/40';
+
+                        return (
+                          <div
+                            key={commit.id}
+                            className={`p-3 rounded-lg bg-surface-2 border-l-2 ${borderColor} ${
+                              commit.enabled ? 'opacity-100' : 'opacity-40'
+                            } transition-all`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs text-white/80 font-medium truncate" title={commit.prompt}>
+                                  &ldquo;{commit.prompt}&rdquo;
+                                </p>
+                                <div className="flex flex-wrap gap-1 mt-1.5">
+                                  {commit.operations.map((op, i) => (
+                                    <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-surface-3 text-white/50 font-mono">
+                                      {op.type}{op.params && Object.keys(op.params).length > 0
+                                        ? `: ${Object.entries(op.params).map(([k, v]) => `${k}=${v}`).join(', ')}`
+                                        : ''}
+                                    </span>
+                                  ))}
+                                </div>
+                                {/* Show if this commit overrides another */}
+                                {commit.enabled && (() => {
+                                  const effectiveSet = new Set(effectiveOps);
+                                  const overridden = commit.operations.some(op => !effectiveSet.has(op));
+                                  return overridden ? (
+                                    <p className="text-[9px] text-amber-400/60 mt-1">⚡ Partially overridden by a later edit</p>
+                                  ) : null;
+                                })()}
+                                <p className="text-[9px] text-white/20 mt-1">
+                                  {new Date(commit.timestamp).toLocaleTimeString()}
+                                  {commit.strategyName ? ` · ${commit.strategyName}` : ''}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {/* Toggle on/off */}
+                                <button
+                                  onClick={() => {
+                                    editStack.toggle(commit.id);
+                                    setAppliedEffects(editStack.computeEffectTypes());
+                                  }}
+                                  className={`w-6 h-6 rounded flex items-center justify-center transition-all ${
+                                    commit.enabled
+                                      ? 'bg-brand-500/20 text-brand-400 hover:bg-brand-500/30'
+                                      : 'bg-surface-3 text-white/20 hover:text-white/40'
+                                  }`}
+                                  title={commit.enabled ? 'Disable this edit' : 'Enable this edit'}
+                                >
+                                  {commit.enabled ? (
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <Eye className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                                {/* Remove */}
+                                <button
+                                  onClick={() => {
+                                    editStack.remove(commit.id);
+                                    setAppliedEffects(editStack.computeEffectTypes());
+                                  }}
+                                  className="w-6 h-6 rounded flex items-center justify-center bg-surface-3 text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                                  title="Remove this edit permanently"
+                                >
+                                  <span className="text-xs font-bold">×</span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Summary & Clear All */}
+                    <div className="border-t border-surface-4/50 pt-3 mt-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-white/30">
+                          {commits.filter(c => c.enabled).length} / {commits.length} edits active · {effectiveOps.length} effective ops
+                        </span>
+                        <button
+                          onClick={() => { editStack.clearAll(); setAppliedEffects([]); setAppliedStrategy(null); }}
+                          className="text-[10px] px-2.5 py-1 rounded bg-red-500/10 border border-red-500/20 text-red-400/80 hover:bg-red-500/20 transition-colors"
+                        >
+                          Reset Everything
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
