@@ -42,7 +42,7 @@ export interface DemoStep {
   /** Delay (ms) before executing this step */
   delay: number;
   /** For switch-tab */
-  tab?: 'strategy' | 'ai-chat' | 'history' | 'voice';
+  tab?: 'strategy' | 'ai-chat' | 'history';
   /** For type-chat — the text to type with typewriter effect */
   text?: string;
   /** For type-chat — ms per character (default 45) */
@@ -162,7 +162,7 @@ const RESPONSE_VOICE_ZOOM: DemoAIResponse = {
 };
 
 // ---------------------------------------------------------------------------
-// Full demo sequence
+// Full demo sequence — ALL instructions via voice
 // ---------------------------------------------------------------------------
 export const DEMO_STEPS: DemoStep[] = [
   // 1. Open the real file picker so user can upload their own video
@@ -171,92 +171,83 @@ export const DEMO_STEPS: DemoStep[] = [
   // 2. Start an editing session
   { type: 'start-session', delay: 1200 },
 
-  // 3. Switch to AI Chat
-  { type: 'switch-tab', delay: 1200, tab: 'ai-chat' },
+  // 3. Switch to AI Chat (voice mic is built into chat panel)
+  { type: 'switch-tab', delay: 1000, tab: 'ai-chat' },
 
-  // 3. Type first prompt
-  {
-    type: 'type-chat',
-    delay: 1000,
-    text: 'make it cinematic with dramatic zoom and bold captions',
-    typeSpeed: 40,
-  },
+  // 4. Start voice mode
+  { type: 'start-voice', delay: 800 },
 
-  // 3. Send & get deterministic response
-  { type: 'send-chat', delay: 600, response: RESPONSE_CINEMATIC },
-
-  // 4. Wait for user to see the edits on timeline
-  { type: 'wait', delay: 3000, duration: 3000 },
-
-  // 5. Type second prompt
-  {
-    type: 'type-chat',
-    delay: 500,
-    text: 'cut the first 3 seconds and add a fade in',
-    typeSpeed: 40,
-  },
-
-  // 6. Send
-  { type: 'send-chat', delay: 600, response: RESPONSE_CUT_FADE },
-
-  // 7. Wait
-  { type: 'wait', delay: 2500, duration: 2500 },
-
-  // 8. Type third prompt
-  {
-    type: 'type-chat',
-    delay: 500,
-    text: 'speed up the middle section to 1.5x',
-    typeSpeed: 40,
-  },
-
-  // 9. Send
-  { type: 'send-chat', delay: 600, response: RESPONSE_SPEED },
-
-  // 10. Wait
-  { type: 'wait', delay: 2000, duration: 2000 },
-
-  // 11. Switch to voice tab
-  { type: 'switch-tab', delay: 1000, tab: 'voice' },
-
-  // 12. Start voice listening (simulated for demo)
-  { type: 'start-voice', delay: 1200 },
-
-  // 13. Simulate a voice command — transcript appears, then processed
+  // 5. Voice command 1 — cinematic treatment
   {
     type: 'voice-command',
-    delay: 1500,
-    text: 'add a slow zoom on the ending',
-    typeSpeed: 55,
-    response: RESPONSE_VOICE_ZOOM,
+    delay: 1200,
+    text: 'make it cinematic with dramatic zoom and bold captions',
+    typeSpeed: 50,
+    response: RESPONSE_CINEMATIC,
     audioSrc: '/demo/voice-command-1.m4a',
   },
 
-  // 14. Wait for user to see the result
+  // 6. Wait for user to see the edits on timeline
+  { type: 'wait', delay: 3000, duration: 3000 },
+
+  // 7. Voice command 2 — cut + fade
+  {
+    type: 'voice-command',
+    delay: 800,
+    text: 'cut the first 3 seconds and add a fade in',
+    typeSpeed: 50,
+    response: RESPONSE_CUT_FADE,
+    audioSrc: '/demo/voice-command-2.m4a',
+  },
+
+  // 8. Wait
   { type: 'wait', delay: 2500, duration: 2500 },
 
-  // 15. Stop voice
+  // 9. Voice command 3 — speed ramp
+  {
+    type: 'voice-command',
+    delay: 800,
+    text: 'speed up the middle section to 1.5x',
+    typeSpeed: 50,
+    response: RESPONSE_SPEED,
+    audioSrc: '/demo/voice-command-3.m4a',
+  },
+
+  // 10. Wait
+  { type: 'wait', delay: 2500, duration: 2500 },
+
+  // 11. Voice command 4 — ending zoom
+  {
+    type: 'voice-command',
+    delay: 800,
+    text: 'add a slow zoom on the ending',
+    typeSpeed: 50,
+    response: RESPONSE_VOICE_ZOOM,
+    audioSrc: '/demo/voice-command-4.m4a',
+  },
+
+  // 12. Wait
+  { type: 'wait', delay: 2000, duration: 2000 },
+
+  // 13. Stop voice mode
   { type: 'stop-voice', delay: 500 },
 
-  // 16. Switch back to AI chat
-  { type: 'switch-tab', delay: 800, tab: 'ai-chat' },
-
-  // 17. Toggle preview mode
+  // 14. Toggle preview mode
   { type: 'toggle-preview', delay: 1000 },
 
-  // 12. Play video for a bit
+  // 15. Play video for a bit
   { type: 'play-video', delay: 1500 },
 
-  // 13. Wait while video plays
+  // 16. Wait while video plays
   { type: 'wait', delay: 4000, duration: 4000 },
 
-  // 14. Pause
+  // 17. Pause
   { type: 'pause-video', delay: 0 },
 
-  // 15. Open share modal
+  // 18. Open share modal
   { type: 'open-share', delay: 1500 },
 
-  // 16. Fill title
+  // 19. Fill title
   {
     type: 'fill-title',
     delay: 1000,
@@ -264,7 +255,7 @@ export const DEMO_STEPS: DemoStep[] = [
     typeSpeed: 35,
   },
 
-  // 17. Fill description
+  // 20. Fill description
   {
     type: 'fill-description',
     delay: 800,
@@ -272,19 +263,19 @@ export const DEMO_STEPS: DemoStep[] = [
     typeSpeed: 30,
   },
 
-  // 18. Publish to YouTube
+  // 21. Publish to YouTube
   { type: 'publish', delay: 1500, platform: 'youtube' },
 
-  // 19. Wait for publish to complete
+  // 22. Wait for publish to complete
   { type: 'wait', delay: 4000, duration: 4000 },
 
-  // 20. Publish to Instagram
+  // 23. Publish to Instagram
   { type: 'publish', delay: 1000, platform: 'instagram' },
 
-  // 21. Wait
+  // 24. Wait
   { type: 'wait', delay: 4000, duration: 4000 },
 
-  // 22. Done — close modal after a pause
+  // 25. Done — close modal after a pause
   { type: 'close-share', delay: 2000 },
 ];
 

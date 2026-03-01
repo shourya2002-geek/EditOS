@@ -17,7 +17,7 @@ import {
   ArrowLeft, PlayCircle, StopCircle, Timer, Share2,
 } from 'lucide-react';
 
-type EditorTab = 'strategy' | 'timeline' | 'voice' | 'ai-chat' | 'history';
+type EditorTab = 'strategy' | 'timeline' | 'ai-chat' | 'history';
 
 export default function EditorPage() {
   const params = useParams();
@@ -1609,7 +1609,6 @@ export default function EditorPage() {
               { key: 'strategy' as const, label: 'Strategy', icon: Wand2 },
               { key: 'ai-chat' as const, label: 'AI Chat', icon: MessageSquare },
               { key: 'history' as const, label: 'History', icon: Layers },
-              { key: 'voice' as const, label: 'Voice', icon: Mic },
             ]).map((tab) => (
               <button
                 key={tab.key}
@@ -1820,16 +1819,64 @@ export default function EditorPage() {
                     </div>
                   )}
                 </div>
-                <div className="p-3 border-t border-surface-4/50">
+                <div className="p-3 border-t border-surface-4/50 space-y-2">
+                  {/* Inline voice waveform + transcript (visible when voice is active) */}
+                  {(() => {
+                    const isVoiceActive = voice.isListening || demoVoiceListening;
+                    const activeTranscript = voice.transcript || demoTranscript;
+                    if (!isVoiceActive) return null;
+                    return (
+                      <div className="rounded-lg bg-surface-2 border border-red-500/30 p-2.5 space-y-2 animate-fade-in">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                          <span className="text-[10px] font-medium text-red-300">Listening…</span>
+                          {/* Mini waveform */}
+                          <div className="flex items-center gap-px h-4 ml-auto">
+                            {Array.from({ length: 16 }, (_, i) => (
+                              <div
+                                key={i}
+                                className="w-0.5 bg-brand-400 rounded-full animate-waveform"
+                                style={{
+                                  animationDelay: `${i * 0.06}s`,
+                                  height: `${Math.random() * 100}%`,
+                                }}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                        {activeTranscript && (
+                          <p className="text-xs text-white/80 leading-relaxed">{activeTranscript}</p>
+                        )}
+                      </div>
+                    );
+                  })()}
                   <div className="flex gap-2">
                     <input
                       className="input text-xs py-2"
                       value={chatInput}
                       onChange={(e) => setChatInput(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleChatSend()}
-                      placeholder="Tell me what to edit... e.g. 'cut the first 3 seconds'"
+                      placeholder={(voice.isListening || demoVoiceListening) ? 'Listening… speak your command' : "Tell me what to edit... e.g. 'cut the first 3 seconds'"}
+                      disabled={voice.isListening || demoVoiceListening}
                     />
-                    <button onClick={handleChatSend} disabled={generating} className="btn-primary px-3 py-2 disabled:opacity-50">
+                    {/* Mic toggle button */}
+                    <button
+                      onClick={() => {
+                        if (demoVoiceListening) return;
+                        if (!session) return;
+                        voice.isListening ? voice.stopListening() : voice.startListening();
+                      }}
+                      disabled={!session}
+                      className={`px-2.5 py-2 rounded-lg border transition-all disabled:opacity-30 ${
+                        (voice.isListening || demoVoiceListening)
+                          ? 'bg-red-500/15 border-red-500/40 text-red-400'
+                          : 'bg-surface-3 border-surface-4 text-white/50 hover:text-brand-400 hover:border-brand-500/40'
+                      }`}
+                      title={(voice.isListening || demoVoiceListening) ? 'Stop listening' : 'Voice command'}
+                    >
+                      {(voice.isListening || demoVoiceListening) ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+                    </button>
+                    <button onClick={handleChatSend} disabled={generating || voice.isListening || demoVoiceListening} className="btn-primary px-3 py-2 disabled:opacity-50">
                       {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                     </button>
                   </div>
@@ -1973,105 +2020,7 @@ export default function EditorPage() {
               </div>
             )}
 
-            {activeTab === 'voice' && (
-              <div className="p-4 space-y-6">
-                {!session ? (
-                  <div className="text-center py-12">
-                    <Mic className="w-10 h-10 text-white/15 mx-auto mb-4" />
-                    <p className="text-sm font-medium text-white/50 mb-2">Session required</p>
-                    <p className="text-xs text-white/30 mb-4">Start a session to use voice commands</p>
-                    <button onClick={startSession} disabled={sessionLoading} className="btn-primary text-xs">
-                      {sessionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4" />}
-                      {sessionLoading ? 'Starting...' : 'Start Session'}
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    {/* Voice button — reflects real OR demo-simulated listening */}
-                    {(() => {
-                      const isActive = voice.isListening || demoVoiceListening;
-                      const activeTranscript = voice.transcript || demoTranscript;
-                      return (
-                        <>
-                          <div className="text-center py-8">
-                            <button
-                              onClick={() => {
-                                if (demoVoiceListening) return; // don't toggle during demo
-                                voice.isListening ? voice.stopListening() : voice.startListening();
-                              }}
-                              className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center transition-all ${
-                                isActive
-                                  ? 'bg-red-500/20 border-2 border-red-500 animate-pulse shadow-lg shadow-red-500/20'
-                                  : 'bg-surface-3 border-2 border-surface-4 hover:border-brand-500/50 hover:bg-brand-500/10'
-                              }`}
-                            >
-                              {isActive ? (
-                                <MicOff className="w-8 h-8 text-red-400" />
-                              ) : (
-                                <Mic className="w-8 h-8 text-white/40" />
-                              )}
-                            </button>
-                            <p className="text-sm font-medium mt-4">
-                              {isActive ? 'Listening...' : 'Tap to start voice commands'}
-                            </p>
-                            <p className="text-xs text-white/40 mt-1">
-                              {isActive
-                                ? 'Speak naturally — "cut the first 3 seconds", "add captions"'
-                                : 'Use voice to control the editor hands-free'
-                              }
-                            </p>
-                            {!demoVoiceListening && voice.wsStatus !== 'disconnected' && (
-                              <p className="text-[10px] text-white/20 mt-2">
-                                WS: {voice.wsStatus}
-                              </p>
-                            )}
-                          </div>
-
-                          {/* Waveform visualization */}
-                          {isActive && (
-                            <div className="flex items-center justify-center gap-0.5 h-12">
-                              {Array.from({ length: 20 }, (_, i) => (
-                                <div
-                                  key={i}
-                                  className="w-1 bg-brand-400 rounded-full animate-waveform"
-                                  style={{
-                                    animationDelay: `${i * 0.05}s`,
-                                    height: `${Math.random() * 100}%`,
-                                  }}
-                                />
-                              ))}
-                            </div>
-                          )}
-
-                          {/* Transcript (real or demo-simulated) */}
-                          {activeTranscript && (
-                            <div className="p-3 rounded-lg bg-surface-2 border border-surface-4/50">
-                              <span className="text-[10px] font-medium text-white/40 block mb-1">Transcript</span>
-                              <p className="text-sm text-white/80">{activeTranscript}</p>
-                            </div>
-                          )}
-
-                          {/* Voice command history */}
-                          {voice.commands.length > 0 && (
-                            <div>
-                              <span className="text-xs font-medium text-white/50 block mb-2">Command History</span>
-                              <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                                {voice.commands.map((cmd, i) => (
-                                  <div key={i} className="flex items-center gap-2 p-2 rounded bg-surface-2 text-xs">
-                                    <ChevronRight className="w-3 h-3 text-brand-400 shrink-0" />
-                                    <span className="text-white/70">{cmd.text}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
-                  </>
-                )}
-              </div>
-            )}
+            {/* Voice tab removed — voice is now inline in AI Chat */}
           </div>
         </div>
       </div>
