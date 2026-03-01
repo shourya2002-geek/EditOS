@@ -238,6 +238,22 @@ class ApiClient {
     }>(`/publish/${jobId}`);
   }
 
+  // --- Demo ---
+  async demoSetup() {
+    return this.request<{
+      status: string;
+      accounts: Array<{ platform: string; handle: string }>;
+      projectId: string;
+    }>('/demo/setup', { method: 'POST', body: JSON.stringify({}) });
+  }
+
+  async demoTeardown() {
+    return this.request<{ status: string; cleared: boolean }>('/demo/teardown', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  }
+
   // --- Health ---
   async health() {
     const res = await fetch('/health');

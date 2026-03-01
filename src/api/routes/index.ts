@@ -859,6 +859,65 @@ export async function registerChatRoutes(app: FastifyInstance): Promise<void> {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Demo routes — deterministic setup for recording demos
+// ---------------------------------------------------------------------------
+export async function registerDemoRoutes(app: FastifyInstance): Promise<void> {
+  // POST /api/v1/demo/setup — auto-connect all platform accounts for demo
+  app.post('/api/v1/demo/setup', async (req: FastifyRequest, reply: FastifyReply) => {
+    const creatorId = (req.headers['x-creator-id'] as string) ?? 'dev-creator';
+
+    // Auto-connect all 3 platforms with demo handles
+    if (!connectedAccounts.has(creatorId)) {
+      connectedAccounts.set(creatorId, new Map());
+    }
+    const accounts = connectedAccounts.get(creatorId)!;
+    const demoAccounts = [
+      { platform: 'youtube', handle: 'EditOS_Official' },
+      { platform: 'instagram', handle: 'editos.ai' },
+      { platform: 'twitter', handle: 'EditOS_AI' },
+    ];
+    for (const a of demoAccounts) {
+      accounts.set(a.platform, {
+        platform: a.platform,
+        handle: a.handle,
+        connectedAt: Date.now(),
+      });
+    }
+
+    // Create a demo project if it doesn't exist
+    const projectService = (app as any).projectService;
+    const demoProjectId = 'demo-project';
+    if (projectService) {
+      try {
+        await projectService.get(demoProjectId);
+      } catch {
+        await projectService.create({
+          id: demoProjectId,
+          name: 'Demo Video',
+          creatorId,
+          platform: 'short',
+          status: 'uploaded',
+          createdAt: Date.now(),
+        });
+      }
+    }
+
+    return reply.send({
+      status: 'ok',
+      accounts: demoAccounts,
+      projectId: demoProjectId,
+    });
+  });
+
+  // POST /api/v1/demo/teardown — remove demo state
+  app.post('/api/v1/demo/teardown', async (req: FastifyRequest, reply: FastifyReply) => {
+    const creatorId = (req.headers['x-creator-id'] as string) ?? 'dev-creator';
+    connectedAccounts.delete(creatorId);
+    return reply.send({ status: 'ok', cleared: true });
+  });
+}
+
 export async function registerAllRoutes(app: FastifyInstance): Promise<void> {
   await registerHealthRoutes(app);
   await registerProjectRoutes(app);
@@ -871,4 +930,5 @@ export async function registerAllRoutes(app: FastifyInstance): Promise<void> {
   await registerCollabRoutes(app);
   await registerMetricsRoutes(app);
   await registerChatRoutes(app);
+  await registerDemoRoutes(app);
 }

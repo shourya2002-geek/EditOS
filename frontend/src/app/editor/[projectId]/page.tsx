@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback, useSyncExternalStore, useMemo } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useVoiceWebSocket } from '@/lib/websocket';
 import { ClientEditStack } from '@/lib/editStack';
 import type { EditCommit, EditOperation } from '@/lib/editStack';
+import { DEMO_STEPS, typewriterEffect } from '@/lib/demoScript';
+import type { DemoStep, DemoAIResponse } from '@/lib/demoScript';
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
   Mic, MicOff, Wand2, Undo2, Redo2, ZoomIn, ZoomOut,
@@ -13,6 +15,7 @@ import {
   ChevronRight, Send, MessageSquare, Download, Eye,
   Maximize2, Settings, SplitSquareHorizontal, Upload, CheckCircle2, Loader2,
   ArrowLeft, PlayCircle, StopCircle, Timer, Share2,
+  Clapperboard,
 } from 'lucide-react';
 
 type EditorTab = 'strategy' | 'timeline' | 'voice' | 'ai-chat' | 'history';
@@ -20,7 +23,9 @@ type EditorTab = 'strategy' | 'timeline' | 'voice' | 'ai-chat' | 'history';
 export default function EditorPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const projectId = params.projectId as string;
+  const isDemoUrl = searchParams.get('demo') === '1';
 
   // Project / Session state
   const [project, setProject] = useState<any>(null);
@@ -101,6 +106,12 @@ export default function EditorPage() {
   const [connectedAccounts, setConnectedAccounts] = useState<Record<string, string>>({});
   const [publishUrls, setPublishUrls] = useState<Record<string, string>>({});
   const [publishErrors, setPublishErrors] = useState<Record<string, string>>({});
+
+  // Demo mode state
+  const [demoMode, setDemoMode] = useState(false);
+  const [demoRunning, setDemoRunning] = useState(false);
+  const [demoStepIndex, setDemoStepIndex] = useState(-1);
+  const demoAbortRef = useRef(false);
 
   // Load connected accounts when share modal opens
   useEffect(() => {
@@ -193,11 +204,24 @@ export default function EditorPage() {
           setIsUploaded(true);
         }
       })
-      .catch((err) => {
+      .catch(async (err) => {
+        // In demo mode, if project doesn't exist yet, set up demo and retry
+        if (isDemoUrl) {
+          try {
+            await api.demoSetup();
+            const proj = await api.getProject(projectId);
+            setProject(proj);
+            return;
+          } catch {
+            // Fallback: create a synthetic project in state for demo
+            setProject({ id: projectId, name: 'Demo Video', platform: 'short', status: 'created' });
+            return;
+          }
+        }
         setProjectError(err.message);
       })
       .finally(() => setProjectLoading(false));
-  }, [projectId]);
+  }, [projectId, isDemoUrl]);
 
   // -----------------------------------------------------------------------
   // Session management
@@ -539,6 +563,211 @@ export default function EditorPage() {
   };
 
   // -----------------------------------------------------------------------
+  // Demo engine — deterministic auto-play through pre-scripted steps
+  // -----------------------------------------------------------------------
+
+  /** Apply a pre-scripted AI response (same logic as sendToAI but no API call) */
+  const applyDemoResponse = useCallback((response: DemoAIResponse) => {
+    const dur = videoDuration > 0 ? videoDuration : duration;
+    // Show the AI message
+    setChatMessages(prev => [...prev, { role: 'assistant', text: response.message }]);
+
+    // Apply operations to edit stack
+    if (response.operations && response.operations.length > 0) {
+      const newOps = response.operations.map((op: any) => {
+        let startMs = op.startMs ?? 0;
+        let endMs = op.endMs ?? dur;
+        startMs = Math.max(0, Math.min(startMs, dur));
+        endMs = Math.max(startMs, Math.min(endMs, dur));
+        if (op.type === 'fade_in') {
+          startMs = 0;
+          endMs = op.params?.durationMs ?? op.endMs ?? 1000;
+        } else if (op.type === 'fade_out') {
+          const fadeDur = op.params?.durationMs ?? 1000;
+          endMs = dur;
+          startMs = op.startMs ?? (dur - fadeDur);
+        }
+        return { ...op, startMs, endMs, _startMs: startMs, _endMs: endMs };
+      });
+
+      editStack.push(
+        response.strategyName ?? 'demo edit',
+        newOps,
+        response.strategyName,
+      );
+      setAppliedEffects(editStack.computeEffectTypes());
+    }
+  }, [videoDuration, duration, editStack]);
+
+  /** Run the full demo sequence */
+  const runDemo = useCallback(async () => {
+    demoAbortRef.current = false;
+    setDemoRunning(true);
+    setDemoStepIndex(-1);
+
+    // 1. Setup backend demo state (auto-connect accounts)
+    try {
+      await api.demoSetup();
+    } catch (err) {
+      console.warn('Demo setup failed:', err);
+    }
+
+    // 2. Clear existing state for clean demo
+    editStack.clearAll();
+    setAppliedEffects([]);
+    setAppliedStrategy(null);
+    setPreviewMode(false);
+    setShowShareModal(false);
+    setChatMessages([
+      { role: 'assistant', text: 'Hi! I\'m your EditOS AI editor powered by Mistral. Tell me what you want to do with your video — I\'ll edit it for you. Try: "cut the first 3 seconds" or "add captions" or "make it cinematic".' },
+    ]);
+    setChatInput('');
+    setPostTitle('');
+    setPostDescription('');
+    setPostStatus({});
+    setPublishUrls({});
+    setPublishErrors({});
+    setConnectedAccounts({});
+
+    const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+    // 3. Execute each step
+    for (let i = 0; i < DEMO_STEPS.length; i++) {
+      if (demoAbortRef.current) break;
+      const step = DEMO_STEPS[i];
+      setDemoStepIndex(i);
+
+      // Wait the step's delay
+      if (step.delay > 0) {
+        await wait(step.delay);
+      }
+      if (demoAbortRef.current) break;
+
+      switch (step.type) {
+        case 'switch-tab':
+          if (step.tab) setActiveTab(step.tab);
+          break;
+
+        case 'type-chat':
+          if (step.text) {
+            await typewriterEffect(
+              step.text,
+              (partial) => setChatInput(partial),
+              step.typeSpeed ?? 45,
+            );
+          }
+          break;
+
+        case 'send-chat':
+          if (step.response) {
+            const currentInput = step.text ?? '';
+            // Get the text that was typed in the previous type-chat step
+            const prevStep = i > 0 ? DEMO_STEPS[i - 1] : null;
+            const typedText = prevStep?.type === 'type-chat' ? prevStep.text : '';
+            if (typedText) {
+              setChatMessages(prev => [...prev, { role: 'user', text: typedText }]);
+            }
+            setChatInput('');
+            // Show "thinking" briefly
+            setGenerating(true);
+            await wait(1200);
+            if (demoAbortRef.current) { setGenerating(false); break; }
+            setGenerating(false);
+            // Apply the pre-scripted response
+            applyDemoResponse(step.response);
+          }
+          break;
+
+        case 'wait':
+          await wait(step.duration ?? 2000);
+          break;
+
+        case 'play-video':
+          setIsPlaying(true);
+          break;
+
+        case 'pause-video':
+          setIsPlaying(false);
+          break;
+
+        case 'toggle-preview':
+          setPreviewMode(prev => !prev);
+          break;
+
+        case 'open-share':
+          // First load connected accounts (demo setup already connected them)
+          try {
+            const res = await api.getConnectedAccounts();
+            const map: Record<string, string> = {};
+            for (const a of res.accounts) map[a.platform] = a.handle;
+            setConnectedAccounts(map);
+          } catch {}
+          setShowShareModal(true);
+          break;
+
+        case 'fill-title':
+          if (step.value) {
+            await typewriterEffect(
+              step.value,
+              (partial) => setPostTitle(partial),
+              step.typeSpeed ?? 35,
+            );
+          }
+          break;
+
+        case 'fill-description':
+          if (step.value) {
+            await typewriterEffect(
+              step.value,
+              (partial) => setPostDescription(partial),
+              step.typeSpeed ?? 30,
+            );
+          }
+          break;
+
+        case 'publish':
+          if (step.platform) {
+            // Trigger publish through the real backend (simulated pipeline)
+            handlePublish(step.platform);
+          }
+          break;
+
+        case 'close-share':
+          setShowShareModal(false);
+          break;
+      }
+    }
+
+    setDemoRunning(false);
+    setDemoStepIndex(-1);
+  }, [
+    editStack, applyDemoResponse, videoDuration, duration,
+  ]);
+
+  /** Stop the demo */
+  const stopDemo = useCallback(() => {
+    demoAbortRef.current = true;
+    setDemoRunning(false);
+    setDemoStepIndex(-1);
+    setGenerating(false);
+    setIsPlaying(false);
+  }, []);
+
+  // Auto-start demo if URL has ?demo=1
+  const demoAutoStarted = useRef(false);
+  useEffect(() => {
+    if (isDemoUrl && !demoAutoStarted.current && !demoRunning) {
+      demoAutoStarted.current = true;
+      // Delay slightly so the project loads first
+      const timer = setTimeout(() => {
+        setDemoMode(true);
+        runDemo();
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [isDemoUrl]);
+
+  // -----------------------------------------------------------------------
   // Voice command → strategy
   // -----------------------------------------------------------------------
   useEffect(() => {
@@ -782,6 +1011,21 @@ export default function EditorPage() {
 
   return (
     <div className="h-[calc(100vh-3.5rem)] flex flex-col -m-4 md:-m-6 animate-fade-in">
+      {/* Demo mode banner */}
+      {demoRunning && (
+        <div className="h-7 bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/20 border-b border-amber-500/30 flex items-center justify-center gap-2 shrink-0 relative z-50">
+          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+          <span className="text-[11px] font-semibold text-amber-300 tracking-wide uppercase">Demo Mode — Auto-Playing</span>
+          <span className="text-[10px] text-amber-400/60">Step {demoStepIndex + 1} / {DEMO_STEPS.length}</span>
+          <button
+            onClick={stopDemo}
+            className="absolute right-3 text-[10px] text-amber-400/80 hover:text-white transition-colors underline"
+          >
+            Stop
+          </button>
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="h-12 bg-surface-1 border-b border-surface-4/50 flex items-center justify-between px-3 md:px-4 shrink-0 overflow-x-auto">
         <div className="flex items-center gap-1">
@@ -839,6 +1083,28 @@ export default function EditorPage() {
               </button>
             </>
           )}
+
+          {/* Demo Mode Toggle */}
+          {demoRunning ? (
+            <button
+              onClick={stopDemo}
+              className="text-[10px] py-1.5 px-3 rounded-lg bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500/30 transition-all flex items-center gap-1.5 animate-pulse"
+              title="Stop demo"
+            >
+              <StopCircle className="w-3.5 h-3.5" />
+              Demo Running ({demoStepIndex + 1}/{DEMO_STEPS.length})
+            </button>
+          ) : (
+            <button
+              onClick={() => { setDemoMode(true); runDemo(); }}
+              className="text-[10px] py-1.5 px-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 transition-all flex items-center gap-1.5"
+              title="Start automated demo — records a deterministic walkthrough"
+            >
+              <Clapperboard className="w-3.5 h-3.5" />
+              Demo
+            </button>
+          )}
+
           <button
             onClick={() => setShowShareModal(true)}
             className="btn-primary text-xs py-1.5 px-3 hidden sm:inline-flex"
