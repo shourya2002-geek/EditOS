@@ -6,7 +6,7 @@ import { api } from '@/lib/api';
 import { useVoiceWebSocket } from '@/lib/websocket';
 import { ClientEditStack } from '@/lib/editStack';
 import type { EditCommit, EditOperation } from '@/lib/editStack';
-import { DEMO_STEPS, typewriterEffect, speakText } from '@/lib/demoScript';
+import { DEMO_STEPS, typewriterEffect, playDemoAudio, stopDemoAudio } from '@/lib/demoScript';
 import type { DemoStep, DemoAIResponse } from '@/lib/demoScript';
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
@@ -762,8 +762,8 @@ export default function EditorPage() {
 
         case 'voice-command':
           if (step.text) {
-            // Speak the command aloud via TTS (fire-and-forget, runs in parallel)
-            speakText(step.text, { rate: 0.95, pitch: 1.05 });
+            // Play the pre-recorded human voice audio (fire-and-forget, runs in parallel)
+            if (step.audioSrc) playDemoAudio(step.audioSrc);
             // Simulate transcript appearing word-by-word
             const words = step.text.split(' ');
             for (let w = 0; w < words.length; w++) {
@@ -868,10 +868,8 @@ export default function EditorPage() {
     setIsPlaying(false);
     setDemoVoiceListening(false);
     setDemoTranscript('');
-    // Cancel any in-progress TTS
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
+    // Cancel any in-progress demo audio
+    stopDemoAudio();
   }, []);
 
   // Auto-start demo if URL has ?demo=1 — wait for project to finish loading first

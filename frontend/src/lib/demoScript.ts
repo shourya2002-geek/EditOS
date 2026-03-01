@@ -55,6 +55,8 @@ export interface DemoStep {
   platform?: string;
   /** For wait — duration ms */
   duration?: number;
+  /** For voice-command — path to pre-recorded audio file (relative to /public) */
+  audioSrc?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -227,6 +229,7 @@ export const DEMO_STEPS: DemoStep[] = [
     text: 'add a slow zoom on the ending',
     typeSpeed: 55,
     response: RESPONSE_VOICE_ZOOM,
+    audioSrc: '/demo/voice-command-1.m4a',
   },
 
   // 14. Wait for user to see the result
@@ -307,40 +310,28 @@ export function typewriterEffect(
 }
 
 // ---------------------------------------------------------------------------
-// Helper: speak text aloud using Web Speech Synthesis (TTS)
+// Helper: play a pre-recorded demo audio file
 // ---------------------------------------------------------------------------
-export function speakText(
-  text: string,
-  options?: { rate?: number; pitch?: number; volume?: number },
-): Promise<void> {
+let _demoAudio: HTMLAudioElement | null = null;
+
+export function playDemoAudio(src: string, volume: number = 0.85): Promise<void> {
   return new Promise((resolve) => {
-    if (typeof window === 'undefined' || !window.speechSynthesis) {
-      // TTS not available — resolve silently
-      resolve();
-      return;
-    }
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = options?.rate ?? 1.0;
-    utterance.pitch = options?.pitch ?? 1.0;
-    utterance.volume = options?.volume ?? 0.9;
-    utterance.lang = 'en-US';
-
-    // Try to pick a natural-sounding voice
-    const voices = window.speechSynthesis.getVoices();
-    const preferred = voices.find(
-      (v) => v.lang.startsWith('en') && (v.name.includes('Samantha') || v.name.includes('Google') || v.name.includes('Natural')),
-    );
-    if (preferred) utterance.voice = preferred;
-
-    utterance.onend = () => resolve();
-    utterance.onerror = () => resolve();
-    window.speechSynthesis.speak(utterance);
+    if (typeof window === 'undefined') { resolve(); return; }
+    // Stop any previous demo audio
+    stopDemoAudio();
+    const audio = new Audio(src);
+    audio.volume = volume;
+    audio.onended = () => { _demoAudio = null; resolve(); };
+    audio.onerror = () => { _demoAudio = null; resolve(); };
+    _demoAudio = audio;
+    audio.play().catch(() => { _demoAudio = null; resolve(); });
   });
 }
 
-// Pre-warm voices (they may load asynchronously)
-if (typeof window !== 'undefined' && window.speechSynthesis) {
-  window.speechSynthesis.getVoices();
-  // Chrome loads voices asynchronously
-  window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
+export function stopDemoAudio(): void {
+  if (_demoAudio) {
+    _demoAudio.pause();
+    _demoAudio.currentTime = 0;
+    _demoAudio = null;
+  }
 }
