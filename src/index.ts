@@ -10,6 +10,15 @@
 //   6. Listen
 // ============================================================================
 
+// Polyfill global fetch for Node < 18
+import fetch, { Headers, Request, Response } from 'node-fetch';
+if (!globalThis.fetch) {
+  (globalThis as any).fetch = fetch;
+  (globalThis as any).Headers = Headers;
+  (globalThis as any).Request = Request;
+  (globalThis as any).Response = Response;
+}
+
 import Fastify from 'fastify';
 import fastifyWebsocket from '@fastify/websocket';
 import fastifyMultipart from '@fastify/multipart';
