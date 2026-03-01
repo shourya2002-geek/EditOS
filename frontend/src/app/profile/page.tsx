@@ -180,13 +180,11 @@ export default function ProfilePage() {
       {/* Preferred Platforms */}
       <div>
         <h2 className="text-lg font-semibold mb-4">Platform Preferences</h2>
-        <div className="grid grid-cols-5 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           {[
-            { name: 'TikTok', active: true, color: 'border-brand-500/40 bg-brand-500/10' },
+            { name: 'Instagram Reels', active: true, color: 'border-pink-500/40 bg-pink-500/10' },
             { name: 'YouTube Shorts', active: true, color: 'border-red-500/40 bg-red-500/10' },
-            { name: 'Instagram Reels', active: false, color: '' },
-            { name: 'YouTube', active: false, color: '' },
-            { name: 'Twitter/X', active: false, color: '' },
+            { name: 'X (Twitter)', active: true, color: 'border-white/20 bg-white/5' },
           ].map((platform) => (
             <div
               key={platform.name}

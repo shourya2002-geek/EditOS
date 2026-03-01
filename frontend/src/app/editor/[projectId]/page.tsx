@@ -12,7 +12,7 @@ import {
   Layers, Type, Music, Image, Scissors, Sparkles,
   ChevronRight, Send, MessageSquare, Download, Eye,
   Maximize2, Settings, SplitSquareHorizontal, Upload, CheckCircle2, Loader2,
-  ArrowLeft, PlayCircle, StopCircle, Timer,
+  ArrowLeft, PlayCircle, StopCircle, Timer, Share2,
 } from 'lucide-react';
 
 type EditorTab = 'strategy' | 'timeline' | 'voice' | 'ai-chat' | 'history';
@@ -91,6 +91,11 @@ export default function EditorPage() {
 
   // Voice
   const voice = useVoiceWebSocket();
+
+  // Share / Post modal
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [postingTo, setPostingTo] = useState<string | null>(null);
+  const [postStatus, setPostStatus] = useState<Record<string, 'idle' | 'posting' | 'done' | 'error'>>({});
 
   // Video upload
   const [videoFile, setVideoFile] = useState<File | null>(null);
@@ -354,7 +359,7 @@ export default function EditorPage() {
         conversationId,
         message: text,
         videoDurationMs: effectiveDuration,
-        platform: project?.platform ?? 'tiktok',
+        platform: project?.platform ?? 'short',
       });
 
       // Show AI response in chat
@@ -457,7 +462,7 @@ export default function EditorPage() {
       const result = await api.generateStrategy({
         projectId,
         intent: intentText,
-        platform: project?.platform ?? 'tiktok',
+        platform: project?.platform ?? 'short',
       });
       setStrategy(result);
     } catch (err: any) {
@@ -768,9 +773,12 @@ export default function EditorPage() {
               </button>
             </>
           )}
-          <button className="btn-primary text-xs py-1.5 px-3 hidden sm:inline-flex">
-            <Download className="w-3.5 h-3.5" />
-            Export
+          <button
+            onClick={() => setShowShareModal(true)}
+            className="btn-primary text-xs py-1.5 px-3 hidden sm:inline-flex"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            Post
           </button>
         </div>
       </div>
@@ -1213,7 +1221,7 @@ export default function EditorPage() {
                     className="input min-h-[80px] resize-none"
                     value={intent}
                     onChange={(e) => setIntent(e.target.value)}
-                    placeholder='e.g. "Fast-paced TikTok with punchy cuts, bold captions, and energy ramping up"'
+                    placeholder='e.g. "Fast-paced short with punchy cuts, bold captions, and energy ramping up"'
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleIntentSubmit(); } }}
                   />
                   <button
@@ -1289,7 +1297,7 @@ export default function EditorPage() {
                       <div className="grid grid-cols-2 gap-2">
                         <div className="p-2.5 rounded-lg bg-surface-2 border border-surface-4/50">
                           <span className="text-[10px] text-white/40 block">Platform</span>
-                          <span className="text-xs font-medium">{strategy.strategy?.targetPlatform ?? 'tiktok'}</span>
+                          <span className="text-xs font-medium">{strategy.strategy?.targetPlatform ?? 'short'}</span>
                         </div>
                         <div className="p-2.5 rounded-lg bg-surface-2 border border-surface-4/50">
                           <span className="text-[10px] text-white/40 block">Model</span>
@@ -1628,6 +1636,115 @@ export default function EditorPage() {
           </div>
         </div>
       </div>
+
+      {/* Share / Post Modal */}
+      {showShareModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowShareModal(false)}>
+          <div className="bg-dark-800 border border-dark-600 rounded-2xl w-full max-w-md mx-4 p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-bold text-white">Post Your Short</h2>
+              <button onClick={() => setShowShareModal(false)} className="text-dark-400 hover:text-white transition-colors text-xl leading-none">&times;</button>
+            </div>
+
+            {editedDurationMs > 0 && editedDurationMs < effectiveDuration && (
+              <div className="mb-4 px-3 py-2 rounded-lg bg-dark-700 border border-dark-600 text-xs text-dark-300 flex items-center gap-2">
+                <Timer className="w-3.5 h-3.5 text-brand-400" />
+                Edited duration: <span className="text-brand-400 font-bold">{formatTime(editedDurationMs)}</span>
+              </div>
+            )}
+
+            <p className="text-dark-400 text-sm mb-5">Choose where to publish your edited video.</p>
+
+            <div className="space-y-3">
+              {/* Instagram Reels */}
+              <div className="flex items-center justify-between p-3 rounded-xl bg-dark-700/60 border border-dark-600 hover:border-pink-500/50 transition-colors">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+                  </div>
+                  <div>
+                    <p className="text-white text-sm font-semibold">Instagram Reels</p>
+                    <p className="text-dark-400 text-xs">Share as a Reel</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setPostingTo('instagram');
+                    setPostStatus(s => ({ ...s, instagram: 'posting' }));
+                    setTimeout(() => setPostStatus(s => ({ ...s, instagram: 'done' })), 2200);
+                  }}
+                  disabled={postStatus.instagram === 'posting' || postStatus.instagram === 'done'}
+                  className={`text-xs font-semibold px-4 py-1.5 rounded-lg transition-colors ${
+                    postStatus.instagram === 'done' ? 'bg-green-600 text-white' :
+                    postStatus.instagram === 'posting' ? 'bg-dark-600 text-dark-400 cursor-wait' :
+                    'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600'
+                  }`}
+                >
+                  {postStatus.instagram === 'done' ? '✓ Posted' : postStatus.instagram === 'posting' ? 'Posting…' : 'Post'}
+                </button>
+              </div>
+
+              {/* YouTube Shorts */}
+              <div className="flex items-center justify-between p-3 rounded-xl bg-dark-700/60 border border-dark-600 hover:border-red-500/50 transition-colors">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-red-600 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                  </div>
+                  <div>
+                    <p className="text-white text-sm font-semibold">YouTube Shorts</p>
+                    <p className="text-dark-400 text-xs">Upload as a Short</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setPostingTo('youtube');
+                    setPostStatus(s => ({ ...s, youtube: 'posting' }));
+                    setTimeout(() => setPostStatus(s => ({ ...s, youtube: 'done' })), 2500);
+                  }}
+                  disabled={postStatus.youtube === 'posting' || postStatus.youtube === 'done'}
+                  className={`text-xs font-semibold px-4 py-1.5 rounded-lg transition-colors ${
+                    postStatus.youtube === 'done' ? 'bg-green-600 text-white' :
+                    postStatus.youtube === 'posting' ? 'bg-dark-600 text-dark-400 cursor-wait' :
+                    'bg-red-600 text-white hover:bg-red-700'
+                  }`}
+                >
+                  {postStatus.youtube === 'done' ? '✓ Posted' : postStatus.youtube === 'posting' ? 'Posting…' : 'Post'}
+                </button>
+              </div>
+
+              {/* X (Twitter) */}
+              <div className="flex items-center justify-between p-3 rounded-xl bg-dark-700/60 border border-dark-600 hover:border-dark-400/50 transition-colors">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-black border border-dark-600 flex items-center justify-center">
+                    <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                  </div>
+                  <div>
+                    <p className="text-white text-sm font-semibold">X (Twitter)</p>
+                    <p className="text-dark-400 text-xs">Post as a video</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setPostingTo('twitter');
+                    setPostStatus(s => ({ ...s, twitter: 'posting' }));
+                    setTimeout(() => setPostStatus(s => ({ ...s, twitter: 'done' })), 2000);
+                  }}
+                  disabled={postStatus.twitter === 'posting' || postStatus.twitter === 'done'}
+                  className={`text-xs font-semibold px-4 py-1.5 rounded-lg transition-colors ${
+                    postStatus.twitter === 'done' ? 'bg-green-600 text-white' :
+                    postStatus.twitter === 'posting' ? 'bg-dark-600 text-dark-400 cursor-wait' :
+                    'bg-white text-black hover:bg-gray-200'
+                  }`}
+                >
+                  {postStatus.twitter === 'done' ? '✓ Posted' : postStatus.twitter === 'posting' ? 'Posting…' : 'Post'}
+                </button>
+              </div>
+            </div>
+
+            <p className="text-dark-500 text-xs mt-4 text-center">Connect your accounts in Settings to enable direct posting.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

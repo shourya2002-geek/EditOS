@@ -49,10 +49,9 @@ export default function SettingsPage() {
               <div>
                 <label className="block text-xs font-medium text-white/50 mb-1.5">Default Platform</label>
                 <select className="input">
-                  <option value="tiktok">TikTok</option>
-                  <option value="youtube_shorts">YouTube Shorts</option>
                   <option value="instagram_reels">Instagram Reels</option>
-                  <option value="youtube">YouTube</option>
+                  <option value="youtube_shorts">YouTube Shorts</option>
+                  <option value="twitter">X (Twitter)</option>
                 </select>
               </div>
               <div>

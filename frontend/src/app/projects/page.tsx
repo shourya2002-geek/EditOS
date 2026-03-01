@@ -22,7 +22,7 @@ export default function ProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newPlatform, setNewPlatform] = useState('tiktok');
+
 
   useEffect(() => {
     loadProjects();
@@ -42,7 +42,7 @@ export default function ProjectsPage() {
   const handleCreate = async () => {
     if (!newName.trim()) return;
     try {
-      await api.createProject({ name: newName, platform: newPlatform });
+      await api.createProject({ name: newName });
       setNewName('');
       setShowCreate(false);
       loadProjects();
@@ -51,14 +51,7 @@ export default function ProjectsPage() {
     }
   };
 
-  const platforms = ['tiktok', 'youtube_shorts', 'instagram_reels', 'youtube', 'twitter'];
-  const platformColors: Record<string, string> = {
-    tiktok: 'badge-brand',
-    youtube_shorts: 'badge-red',
-    instagram_reels: 'badge-amber',
-    youtube: 'badge-red',
-    twitter: 'badge-cyan',
-  };
+
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 animate-fade-in">
@@ -89,24 +82,7 @@ export default function ProjectsPage() {
                 autoFocus
               />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-white/50 mb-1.5">Target Platform</label>
-              <div className="flex flex-wrap gap-2">
-                {platforms.map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setNewPlatform(p)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                      newPlatform === p
-                        ? 'bg-brand-500/20 border-brand-500/40 text-brand-300'
-                        : 'bg-surface-3 border-surface-4 text-white/50 hover:text-white/70'
-                    }`}
-                  >
-                    {p.replace('_', ' ')}
-                  </button>
-                ))}
-              </div>
-            </div>
+
             <div className="flex gap-3 pt-2">
               <button onClick={handleCreate} className="btn-primary flex-1">
                 Create
@@ -158,9 +134,6 @@ export default function ProjectsPage() {
                 <div>
                   <h3 className="font-semibold text-sm">{project.name}</h3>
                   <div className="flex items-center gap-2 mt-1.5">
-                    <span className={platformColors[project.platform ?? 'tiktok'] ?? 'badge-brand'}>
-                      {(project.platform ?? 'tiktok').replace('_', ' ')}
-                    </span>
                     <span className="text-xs text-white/30">
                       {timeAgo(project.createdAt)}
                     </span>
