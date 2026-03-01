@@ -33,6 +33,11 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<Stats>({ projects: 0, sessions: 0, renders: 0, uptime: '0s' });
   const [demoCreating, setDemoCreating] = useState(false);
 
+  // Demo visual state
+  const [showDemoModal, setShowDemoModal] = useState(false);
+  const [demoProjectName, setDemoProjectName] = useState('');
+  const [demoPhase, setDemoPhase] = useState<'typing' | 'creating' | 'done' | null>(null);
+
   useEffect(() => {
     const load = async () => {
       try {
@@ -58,15 +63,43 @@ export default function DashboardPage() {
   const startDemo = async () => {
     if (demoCreating) return;
     setDemoCreating(true);
+
+    // Phase 1: Open the modal
+    setShowDemoModal(true);
+    setDemoProjectName('');
+    setDemoPhase('typing');
+
+    // Phase 2: Typewriter effect for "Project A"
+    const name = 'Project A';
+    await new Promise((r) => setTimeout(r, 500)); // pause before typing
+    for (let i = 0; i <= name.length; i++) {
+      const slice = name.slice(0, i);
+      setDemoProjectName(slice);
+      await new Promise((r) => setTimeout(r, 80 + Math.random() * 60));
+    }
+
+    // Phase 3: Brief pause then "click" create
+    await new Promise((r) => setTimeout(r, 600));
+    setDemoPhase('creating');
+
+    // Actually create the project via API
+    let projectId = 'demo-project';
     try {
       const proj = await api.createProject({ name: 'Project A' });
-      router.push(`/editor/${proj.id}?demo=1`);
+      projectId = proj.id;
     } catch {
-      // Fallback: use a fixed demo project id
-      router.push('/editor/demo-project?demo=1');
-    } finally {
-      setDemoCreating(false);
+      // fallback
     }
+
+    // Phase 4: Show success briefly
+    setDemoPhase('done');
+    await new Promise((r) => setTimeout(r, 700));
+
+    // Navigate to editor with demo flag
+    setShowDemoModal(false);
+    setDemoCreating(false);
+    setDemoPhase(null);
+    router.push(`/editor/${projectId}?demo=1`);
   };
 
   return (
@@ -195,6 +228,53 @@ export default function DashboardPage() {
           />
         </div>
       </div>
+
+      {/* Demo Create-Project Modal */}
+      {showDemoModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="card p-6 w-full max-w-md animate-slide-in space-y-4">
+            <h2 className="text-lg font-semibold">Create Project</h2>
+            <div>
+              <label className="block text-xs font-medium text-white/50 mb-1.5">Project Name</label>
+              <input
+                className="input"
+                value={demoProjectName}
+                readOnly
+                placeholder="My Awesome Edit"
+              />
+              {demoPhase === 'typing' && (
+                <span className="inline-block w-0.5 h-4 bg-brand-400 animate-pulse ml-0.5 -mb-0.5" />
+              )}
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                className={`btn-primary flex-1 transition-all ${
+                  demoPhase === 'creating'
+                    ? 'opacity-80 animate-pulse'
+                    : demoPhase === 'done'
+                    ? 'bg-emerald-600 hover:bg-emerald-600'
+                    : ''
+                }`}
+                disabled
+              >
+                {demoPhase === 'creating' ? (
+                  <span className="flex items-center gap-2">
+                    <span className="w-3.5 h-3.5 border-2 border-white/60 border-t-transparent rounded-full animate-spin" />
+                    Creating…
+                  </span>
+                ) : demoPhase === 'done' ? (
+                  '✓ Created'
+                ) : (
+                  'Create'
+                )}
+              </button>
+              <button className="btn-secondary flex-1 opacity-50 cursor-not-allowed" disabled>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
