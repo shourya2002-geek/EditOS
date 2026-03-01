@@ -6,7 +6,7 @@ import { api } from '@/lib/api';
 import { useVoiceWebSocket } from '@/lib/websocket';
 import { ClientEditStack } from '@/lib/editStack';
 import type { EditCommit, EditOperation } from '@/lib/editStack';
-import { DEMO_STEPS, typewriterEffect, playDemoAudio, stopDemoAudio } from '@/lib/demoScript';
+import { DEMO_STEPS, typewriterEffect, playDemoAudio, stopDemoAudio, listenForSpeech } from '@/lib/demoScript';
 import type { DemoStep, DemoAIResponse } from '@/lib/demoScript';
 import {
   Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
@@ -116,6 +116,7 @@ export default function EditorPage() {
   // Demo voice simulation (no real mic needed)
   const [demoVoiceListening, setDemoVoiceListening] = useState(false);
   const [demoTranscript, setDemoTranscript] = useState('');
+  const [demoVoicePrompt, setDemoVoicePrompt] = useState('');
 
   // Load connected accounts when share modal opens
   useEffect(() => {
@@ -760,32 +761,30 @@ export default function EditorPage() {
           setDemoTranscript('');
           break;
 
-        case 'voice-command':
-          if (step.text) {
-            // Play the pre-recorded human voice audio (fire-and-forget, runs in parallel)
-            if (step.audioSrc) playDemoAudio(step.audioSrc);
-            // Simulate transcript appearing word-by-word
-            const words = step.text.split(' ');
-            for (let w = 0; w < words.length; w++) {
-              if (demoAbortRef.current) break;
-              setDemoTranscript(words.slice(0, w + 1).join(' '));
-              await wait(step.typeSpeed ?? 55);
-            }
-            if (demoAbortRef.current) break;
-            await wait(600);
-            // Add user message (voice command) to chat
-            setChatMessages(prev => [...prev, { role: 'user', text: `🎙️ ${step.text}` }]);
-            setDemoTranscript('');
-            // Process the pre-scripted response (same as send-chat)
-            if (step.response) {
-              setGenerating(true);
-              await wait(1200);
-              if (demoAbortRef.current) { setGenerating(false); break; }
-              setGenerating(false);
-              applyDemoResponse(step.response);
-            }
+        case 'voice-command': {
+          // Show the prompt hint so presenter knows what to say
+          if (step.voicePrompt) setDemoVoicePrompt(step.voicePrompt);
+          // Use live mic via Web Speech API
+          const transcript = await listenForSpeech(
+            (interim) => setDemoTranscript(interim),
+            () => demoAbortRef.current,
+          );
+          if (demoAbortRef.current) { setDemoVoicePrompt(''); break; }
+          const finalText = transcript.trim() || step.voicePrompt?.replace(/^Say:\s*"/i, '').replace(/"$/, '') || 'voice command';
+          // Add user message (voice command) to chat
+          setChatMessages(prev => [...prev, { role: 'user', text: `🎙️ ${finalText}` }]);
+          setDemoTranscript('');
+          setDemoVoicePrompt('');
+          // Process the pre-scripted response
+          if (step.response) {
+            setGenerating(true);
+            await wait(1200);
+            if (demoAbortRef.current) { setGenerating(false); break; }
+            setGenerating(false);
+            applyDemoResponse(step.response);
           }
           break;
+        }
 
         case 'stop-voice':
           setDemoVoiceListening(false);
@@ -1844,6 +1843,10 @@ export default function EditorPage() {
                             ))}
                           </div>
                         </div>
+                        {/* Voice prompt hint for presenter */}
+                        {demoVoicePrompt && (
+                          <p className="text-[11px] text-brand-300/80 italic">{demoVoicePrompt}</p>
+                        )}
                         {activeTranscript && (
                           <p className="text-xs text-white/80 leading-relaxed">{activeTranscript}</p>
                         )}

@@ -55,8 +55,8 @@ export interface DemoStep {
   platform?: string;
   /** For wait — duration ms */
   duration?: number;
-  /** For voice-command — path to pre-recorded audio file (relative to /public) */
-  audioSrc?: string;
+  /** For voice-command — hint shown to the presenter so they know what to say */
+  voicePrompt?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,53 +177,45 @@ export const DEMO_STEPS: DemoStep[] = [
   // 4. Start voice mode
   { type: 'start-voice', delay: 800 },
 
-  // 5. Voice command 1 — cinematic treatment
+  // 5. Voice command 1 — cinematic treatment (user speaks live)
   {
     type: 'voice-command',
     delay: 1200,
-    text: 'make it cinematic with dramatic zoom and bold captions',
-    typeSpeed: 50,
+    voicePrompt: 'Say: "make it cinematic with dramatic zoom and bold captions"',
     response: RESPONSE_CINEMATIC,
-    audioSrc: '/demo/voice-command-1.m4a',
   },
 
   // 6. Wait for user to see the edits on timeline
   { type: 'wait', delay: 3000, duration: 3000 },
 
-  // 7. Voice command 2 — cut + fade
+  // 7. Voice command 2 — cut + fade (user speaks live)
   {
     type: 'voice-command',
     delay: 800,
-    text: 'cut the first 3 seconds and add a fade in',
-    typeSpeed: 50,
+    voicePrompt: 'Say: "cut the first 3 seconds and add a fade in"',
     response: RESPONSE_CUT_FADE,
-    audioSrc: '/demo/voice-command-2.m4a',
   },
 
   // 8. Wait
   { type: 'wait', delay: 2500, duration: 2500 },
 
-  // 9. Voice command 3 — speed ramp
+  // 9. Voice command 3 — speed ramp (user speaks live)
   {
     type: 'voice-command',
     delay: 800,
-    text: 'speed up the middle section to 1.5x',
-    typeSpeed: 50,
+    voicePrompt: 'Say: "speed up the middle section to 1.5x"',
     response: RESPONSE_SPEED,
-    audioSrc: '/demo/voice-command-3.m4a',
   },
 
   // 10. Wait
   { type: 'wait', delay: 2500, duration: 2500 },
 
-  // 11. Voice command 4 — ending zoom
+  // 11. Voice command 4 — ending zoom (user speaks live)
   {
     type: 'voice-command',
     delay: 800,
-    text: 'add a slow zoom on the ending',
-    typeSpeed: 50,
+    voicePrompt: 'Say: "add a slow zoom on the ending"',
     response: RESPONSE_VOICE_ZOOM,
-    audioSrc: '/demo/voice-command-4.m4a',
   },
 
   // 12. Wait
@@ -301,14 +293,13 @@ export function typewriterEffect(
 }
 
 // ---------------------------------------------------------------------------
-// Helper: play a pre-recorded demo audio file
+// Helper: play a pre-recorded demo audio file (kept for future use)
 // ---------------------------------------------------------------------------
 let _demoAudio: HTMLAudioElement | null = null;
 
 export function playDemoAudio(src: string, volume: number = 0.85): Promise<void> {
   return new Promise((resolve) => {
     if (typeof window === 'undefined') { resolve(); return; }
-    // Stop any previous demo audio
     stopDemoAudio();
     const audio = new Audio(src);
     audio.volume = volume;
@@ -325,4 +316,65 @@ export function stopDemoAudio(): void {
     _demoAudio.currentTime = 0;
     _demoAudio = null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: listen for live speech via Web Speech API (SpeechRecognition)
+// Returns the final transcript string. Resolves when the user stops speaking.
+// If abortSignal is provided, it can cancel early.
+// ---------------------------------------------------------------------------
+export function listenForSpeech(
+  onInterim: (transcript: string) => void,
+  abortCheck?: () => boolean,
+): Promise<string> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined') { resolve(''); return; }
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.warn('SpeechRecognition not supported');
+      resolve('');
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognition.maxAlternatives = 1;
+
+    let finalTranscript = '';
+    let settled = false;
+    const finish = (t: string) => { if (!settled) { settled = true; resolve(t); } };
+
+    recognition.onresult = (event: any) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += t;
+        } else {
+          interim += t;
+        }
+      }
+      onInterim(finalTranscript || interim);
+    };
+
+    recognition.onerror = () => finish(finalTranscript);
+    recognition.onend = () => finish(finalTranscript);
+
+    recognition.start();
+
+    // Poll for abort
+    if (abortCheck) {
+      const poll = setInterval(() => {
+        if (abortCheck()) {
+          clearInterval(poll);
+          try { recognition.stop(); } catch (_) {}
+          finish(finalTranscript);
+        }
+      }, 200);
+      // Also clear when done naturally
+      const origFinish = recognition.onend;
+      recognition.onend = () => { clearInterval(poll); finish(finalTranscript); };
+    }
+  });
 }
