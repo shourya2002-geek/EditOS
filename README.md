@@ -1,4 +1,4 @@
-# EditOS — AI Video Editor
+# EditOS: The Agentic Operating System for Creators on the Move!
 
 The Agentic Operating System for Creators on the Move. Upload your content, describe your vision out loud, and let intelligent agents craft a polished, short-form edit in seconds — then publish directly to your favourite platforms, all from wherever you are. Powered by [Mistral AI](https://mistral.ai).
 
