@@ -117,6 +117,7 @@ export default function EditorPage() {
   const [demoVoiceListening, setDemoVoiceListening] = useState(false);
   const [demoTranscript, setDemoTranscript] = useState('');
   const [demoSuggestion, setDemoSuggestion] = useState('');
+  const [demoVoiceHint, setDemoVoiceHint] = useState('');
 
   // Load connected accounts when share modal opens
   useEffect(() => {
@@ -637,6 +638,7 @@ export default function EditorPage() {
     setConnectedAccounts({});
     setDemoVoiceListening(false);
     setDemoTranscript('');
+    setDemoVoiceHint('');
 
     const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
@@ -785,17 +787,22 @@ export default function EditorPage() {
           break;
 
         case 'voice-command': {
-          // Use live mic via Web Speech API — user speaks freely
+          // Show hint of what to say, listen via mic, send deterministic text to AI
+          const deterministic = step.text ?? '';
+          setDemoVoiceListening(true);
+          setDemoVoiceHint(deterministic);
           const transcript = await listenForSpeech(
             (interim) => setDemoTranscript(interim),
             () => demoAbortRef.current,
           );
-          if (demoAbortRef.current) { break; }
-          const finalText = transcript.trim();
-          if (!finalText) break; // nothing captured
+          setDemoVoiceListening(false);
+          setDemoVoiceHint('');
           setDemoTranscript('');
-          // Send to real Mistral AI (same path as typed chat)
-          await sendToAI(`🎙️ ${finalText}`);
+          if (demoAbortRef.current) { break; }
+          // Send the pre-scripted deterministic text (not the transcript) to real Mistral AI
+          if (deterministic) {
+            await sendToAI(`🎙️ ${deterministic}`);
+          }
           break;
         }
 
@@ -880,6 +887,7 @@ export default function EditorPage() {
     setIsPlaying(false);
     setDemoVoiceListening(false);
     setDemoTranscript('');
+    setDemoVoiceHint('');
     // Cancel any in-progress demo audio
     stopDemoAudio();
   }, []);
@@ -1858,6 +1866,9 @@ export default function EditorPage() {
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                           <span className="text-[10px] font-medium text-red-300">Listening…</span>
+                          {demoVoiceHint && (
+                            <span className="text-[10px] text-brand-300/70 italic truncate">Say: &ldquo;{demoVoiceHint}&rdquo;</span>
+                          )}
                           {/* Mini waveform */}
                           <div className="flex items-center gap-px h-4 ml-auto">
                             {Array.from({ length: 16 }, (_, i) => (

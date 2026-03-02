@@ -174,50 +174,34 @@ export const DEMO_STEPS: DemoStep[] = [
   // 3. Switch to AI Chat
   { type: 'switch-tab', delay: 1000, tab: 'ai-chat' },
 
-  // 4. First command — shown as a suggestion bubble, then auto-sent to real AI
-  {
-    type: 'suggest-chat',
-    delay: 1200,
-    text: 'make it cinematic with dramatic zoom',
-  },
+  // 4. Start voice mode
+  { type: 'start-voice', delay: 800 },
 
-  // 5. Wait for AI to process + user to see the edits
+  // 5. First voice command — user speaks, deterministic text sent to real AI
+  { type: 'voice-command', delay: 500, text: 'make it cinematic with dramatic zoom' },
+
+  // 6. Wait for AI to process + user to see the edits
   { type: 'wait', delay: 4000, duration: 4000 },
 
-  // 6. Second command — typed with typewriter, sent to real AI
-  {
-    type: 'type-chat',
-    delay: 800,
-    text: 'cut the last 5 seconds and add a fade in at the end',
-    typeSpeed: 35,
-  },
-  { type: 'send-chat-ai', delay: 400 },
+  // 7. Second voice command
+  { type: 'voice-command', delay: 500, text: 'cut the last 5 seconds and add a fade in at the end' },
 
-  // 7. Wait
+  // 8. Wait
   { type: 'wait', delay: 4000, duration: 4000 },
 
-  // 8. Third command
-  {
-    type: 'type-chat',
-    delay: 800,
-    text: 'speed up the middle section to 1.5x',
-    typeSpeed: 35,
-  },
-  { type: 'send-chat-ai', delay: 400 },
+  // 9. Third voice command
+  { type: 'voice-command', delay: 500, text: 'speed up the middle section to 1.5x' },
 
-  // 9. Wait
+  // 10. Wait
   { type: 'wait', delay: 4000, duration: 4000 },
 
-  // 10. Fourth command
-  {
-    type: 'type-chat',
-    delay: 800,
-    text: 'add a slow zoom on the ending',
-    typeSpeed: 35,
-  },
-  { type: 'send-chat-ai', delay: 400 },
+  // 11. Fourth voice command
+  { type: 'voice-command', delay: 500, text: 'add a slow zoom on the ending' },
 
-  // 11. Wait
+  // 12. Stop voice mode
+  { type: 'stop-voice', delay: 500 },
+
+  // 13. Wait
   { type: 'wait', delay: 3000, duration: 3000 },
 
   // 12. Toggle preview mode
