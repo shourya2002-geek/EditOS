@@ -2,6 +2,10 @@
 
 The Agentic Operating System for Creators on the Move. Upload your content, describe your vision out loud, and let intelligent agents craft a polished, short-form edit in seconds — then publish directly to your favourite platforms, all from wherever you are. Powered by [Mistral AI](https://mistral.ai).
 
+## Demo
+
+[![Demo](https://img.youtube.com/vi/FszafLy5ypc/0.jpg)](https://www.youtube.com/watch?v=FszafLy5ypc)
+
 ---
 
 ## Features
