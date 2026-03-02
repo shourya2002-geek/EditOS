@@ -57,6 +57,8 @@ export interface DemoStep {
   platform?: string;
   /** For wait — duration ms */
   duration?: number;
+  /** For voice-command — show the hint text (Say: "...") */
+  showHint?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,32 +179,32 @@ export const DEMO_STEPS: DemoStep[] = [
   // 4. Start voice mode
   { type: 'start-voice', delay: 800 },
 
-  // 5. First voice command — user speaks, deterministic text sent to real AI
-  { type: 'voice-command', delay: 500, text: 'make it cinematic with dramatic zoom' },
+  // 5. First voice command — hint shown, user speaks, deterministic text sent to real AI
+  { type: 'voice-command', delay: 500, text: 'make it cinematic with dramatic zoom', showHint: true },
 
-  // 6. Wait for AI to process + user to see the edits
-  { type: 'wait', delay: 4000, duration: 4000 },
+  // 6. Wait for AI to process
+  { type: 'wait', delay: 2000, duration: 2000 },
 
-  // 7. Second voice command
-  { type: 'voice-command', delay: 500, text: 'cut the last 5 seconds and add a fade in at the end' },
+  // 7. Second voice command (no hint)
+  { type: 'voice-command', delay: 300, text: 'cut the last 5 seconds and add a fade in at the end' },
 
   // 8. Wait
-  { type: 'wait', delay: 4000, duration: 4000 },
+  { type: 'wait', delay: 2000, duration: 2000 },
 
-  // 9. Third voice command
-  { type: 'voice-command', delay: 500, text: 'speed up the middle section to 1.5x' },
+  // 9. Third voice command (no hint)
+  { type: 'voice-command', delay: 300, text: 'speed up the middle section to 1.5x' },
 
   // 10. Wait
-  { type: 'wait', delay: 4000, duration: 4000 },
+  { type: 'wait', delay: 2000, duration: 2000 },
 
-  // 11. Fourth voice command
-  { type: 'voice-command', delay: 500, text: 'add a slow zoom on the ending' },
+  // 11. Fourth voice command (no hint)
+  { type: 'voice-command', delay: 300, text: 'add a slow zoom on the ending' },
 
   // 12. Stop voice mode
   { type: 'stop-voice', delay: 500 },
 
   // 13. Wait
-  { type: 'wait', delay: 3000, duration: 3000 },
+  { type: 'wait', delay: 2000, duration: 2000 },
 
   // 12. Toggle preview mode
   { type: 'toggle-preview', delay: 1000 },
