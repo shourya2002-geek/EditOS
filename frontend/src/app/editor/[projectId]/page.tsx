@@ -789,13 +789,11 @@ export default function EditorPage() {
         case 'voice-command': {
           // Show hint of what to say, listen via mic, send deterministic text to AI
           const deterministic = step.text ?? '';
-          setDemoVoiceListening(true);
           setDemoVoiceHint(deterministic);
           const transcript = await listenForSpeech(
             (interim) => setDemoTranscript(interim),
             () => demoAbortRef.current,
           );
-          setDemoVoiceListening(false);
           setDemoVoiceHint('');
           setDemoTranscript('');
           if (demoAbortRef.current) { break; }
