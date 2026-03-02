@@ -116,6 +116,7 @@ export default function EditorPage() {
   // Demo voice simulation (no real mic needed)
   const [demoVoiceListening, setDemoVoiceListening] = useState(false);
   const [demoTranscript, setDemoTranscript] = useState('');
+  const [demoSuggestion, setDemoSuggestion] = useState('');
 
   // Load connected accounts when share modal opens
   useEffect(() => {
@@ -754,6 +755,29 @@ export default function EditorPage() {
             }
           }
           break;
+
+        case 'suggest-chat':
+          // Show suggestion bubble in chat, wait briefly, then send to real AI
+          if (step.text) {
+            setDemoSuggestion(step.text);
+            await wait(2000); // let the user see the suggestion
+            if (demoAbortRef.current) { setDemoSuggestion(''); break; }
+            setDemoSuggestion('');
+            // Send to real Mistral AI
+            await sendToAI(step.text);
+          }
+          break;
+
+        case 'send-chat-ai': {
+          // Get the text from the previous type-chat step, clear input, send to real AI
+          const prevStep = i > 0 ? DEMO_STEPS[i - 1] : null;
+          const typedText = prevStep?.type === 'type-chat' ? prevStep.text ?? '' : '';
+          setChatInput('');
+          if (typedText) {
+            await sendToAI(typedText);
+          }
+          break;
+        }
 
         case 'start-voice':
           setDemoVoiceListening(true);
@@ -1794,6 +1818,22 @@ export default function EditorPage() {
                       </div>
                     </div>
                   ))}
+                  {/* Demo suggestion bubble */}
+                  {demoSuggestion && !generating && (
+                    <div className="flex justify-end animate-fade-in">
+                      <button
+                        onClick={() => {
+                          const text = demoSuggestion;
+                          setDemoSuggestion('');
+                          sendToAI(text);
+                        }}
+                        className="max-w-[85%] rounded-xl px-3.5 py-2.5 text-xs leading-relaxed bg-brand-500/10 text-brand-200 border border-brand-500/30 border-dashed hover:bg-brand-500/20 transition-all cursor-pointer flex items-center gap-2"
+                      >
+                        <Sparkles className="w-3 h-3 text-brand-400 shrink-0" />
+                        {demoSuggestion}
+                      </button>
+                    </div>
+                  )}
                   {generating && (
                     <div className="flex justify-start">
                       <div className="bg-surface-3 border border-surface-4/50 rounded-xl px-4 py-3 flex items-center gap-2">

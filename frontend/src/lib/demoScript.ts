@@ -21,6 +21,8 @@ export type DemoStepType =
   | 'switch-tab'
   | 'type-chat'
   | 'send-chat'
+  | 'send-chat-ai'
+  | 'suggest-chat'
   | 'wait'
   | 'simulate-upload'
   | 'trigger-upload'
@@ -160,7 +162,7 @@ const RESPONSE_VOICE_ZOOM: DemoAIResponse = {
 };
 
 // ---------------------------------------------------------------------------
-// Full demo sequence — ALL instructions via voice
+// Full demo sequence — deterministic instructions sent to real Mistral AI
 // ---------------------------------------------------------------------------
 export const DEMO_STEPS: DemoStep[] = [
   // 1. Open the real file picker so user can upload their own video
@@ -169,41 +171,68 @@ export const DEMO_STEPS: DemoStep[] = [
   // 2. Start an editing session
   { type: 'start-session', delay: 1200 },
 
-  // 3. Switch to AI Chat (voice mic is built into chat panel)
+  // 3. Switch to AI Chat
   { type: 'switch-tab', delay: 1000, tab: 'ai-chat' },
 
-  // 4. Start voice mode
-  { type: 'start-voice', delay: 800 },
+  // 4. First command — shown as a suggestion bubble, then auto-sent to real AI
+  {
+    type: 'suggest-chat',
+    delay: 1200,
+    text: 'make it cinematic with dramatic zoom',
+  },
 
-  // 5–8. Four voice commands — user speaks freely, real AI processes each
-  { type: 'voice-command', delay: 1200 },
-  { type: 'wait', delay: 3000, duration: 3000 },
-
-  { type: 'voice-command', delay: 800 },
-  { type: 'wait', delay: 2500, duration: 2500 },
-
-  { type: 'voice-command', delay: 800 },
-  { type: 'wait', delay: 2500, duration: 2500 },
-
-  { type: 'voice-command', delay: 800 },
-  { type: 'wait', delay: 2000, duration: 2000 },
-
-  // 13. Stop voice mode
-  { type: 'stop-voice', delay: 500 },
-
-  // 14. Toggle preview mode
-  { type: 'toggle-preview', delay: 1000 },
-
-  // 15. Play video for a bit
-  { type: 'play-video', delay: 1500 },
-
-  // 16. Wait while video plays
+  // 5. Wait for AI to process + user to see the edits
   { type: 'wait', delay: 4000, duration: 4000 },
 
-  // 17. Pause
+  // 6. Second command — typed with typewriter, sent to real AI
+  {
+    type: 'type-chat',
+    delay: 800,
+    text: 'cut the last 5 seconds and add a fade in at the end',
+    typeSpeed: 35,
+  },
+  { type: 'send-chat-ai', delay: 400 },
+
+  // 7. Wait
+  { type: 'wait', delay: 4000, duration: 4000 },
+
+  // 8. Third command
+  {
+    type: 'type-chat',
+    delay: 800,
+    text: 'speed up the middle section to 1.5x',
+    typeSpeed: 35,
+  },
+  { type: 'send-chat-ai', delay: 400 },
+
+  // 9. Wait
+  { type: 'wait', delay: 4000, duration: 4000 },
+
+  // 10. Fourth command
+  {
+    type: 'type-chat',
+    delay: 800,
+    text: 'add a slow zoom on the ending',
+    typeSpeed: 35,
+  },
+  { type: 'send-chat-ai', delay: 400 },
+
+  // 11. Wait
+  { type: 'wait', delay: 3000, duration: 3000 },
+
+  // 12. Toggle preview mode
+  { type: 'toggle-preview', delay: 1000 },
+
+  // 13. Play video for a bit
+  { type: 'play-video', delay: 1500 },
+
+  // 14. Wait while video plays
+  { type: 'wait', delay: 4000, duration: 4000 },
+
+  // 15. Pause
   { type: 'pause-video', delay: 0 },
 
-  // 18. Open share modal
+  // 16. Open share modal
   { type: 'open-share', delay: 1500 },
 
   // 19. Fill title
