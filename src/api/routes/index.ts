@@ -15,6 +15,8 @@
 // ============================================================================
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { WhisperSTTService } from '../../services/whisperSTTService.js';
+import { appConfig } from '../../config/index.js';
 
 // ---------------------------------------------------------------------------
 // Health check
@@ -931,4 +933,69 @@ export async function registerAllRoutes(app: FastifyInstance): Promise<void> {
   await registerMetricsRoutes(app);
   await registerChatRoutes(app);
   await registerDemoRoutes(app);
+  await registerASRRoutes(app);
+}
+
+// ---------------------------------------------------------------------------
+// ASR routes — custom Whisper STT integration
+// ---------------------------------------------------------------------------
+export async function registerASRRoutes(app: FastifyInstance): Promise<void> {
+  const whisperService = new WhisperSTTService();
+
+  // GET /api/v1/asr/config — returns current ASR provider config
+  app.get('/api/v1/asr/config', async (_req: FastifyRequest, reply: FastifyReply) => {
+    const config = {
+      customAsrEnabled: appConfig.customAsr.enabled,
+      customAsrUrl: appConfig.customAsr.url,
+    };
+
+    // If custom ASR is enabled, also check health
+    if (appConfig.customAsr.enabled) {
+      try {
+        const health = await whisperService.healthCheck();
+        return reply.send({ ...config, customAsrStatus: 'online', model: health.model, device: health.device });
+      } catch {
+        return reply.send({ ...config, customAsrStatus: 'offline' });
+      }
+    }
+
+    return reply.send({ ...config, customAsrStatus: 'disabled' });
+  });
+
+  // POST /api/v1/asr/transcribe — transcribe audio via custom Whisper
+  app.post('/api/v1/asr/transcribe', async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!appConfig.customAsr.enabled) {
+      return reply.status(400).send({ error: 'Custom ASR is not enabled. Set CUSTOM_ASR_ENABLED=true.' });
+    }
+
+    try {
+      // Accept multipart or raw body
+      const contentType = req.headers['content-type'] ?? '';
+      let audioBuffer: Buffer;
+
+      if (contentType.includes('multipart/form-data')) {
+        const data = await req.file();
+        if (!data) return reply.status(400).send({ error: 'No audio file provided' });
+        audioBuffer = await data.toBuffer();
+      } else {
+        // Raw audio body
+        audioBuffer = Buffer.from(await req.body as any);
+      }
+
+      const result = await whisperService.transcribe(audioBuffer);
+      return reply.send(result);
+    } catch (err: any) {
+      return reply.status(500).send({ error: err.message ?? 'Transcription failed' });
+    }
+  });
+
+  // POST /api/v1/asr/toggle — toggle custom ASR on/off at runtime
+  app.post('/api/v1/asr/toggle', async (req: FastifyRequest, reply: FastifyReply) => {
+    const body = req.body as { enabled: boolean };
+    if (typeof body.enabled !== 'boolean') {
+      return reply.status(400).send({ error: 'enabled (boolean) is required' });
+    }
+    appConfig.customAsr.enabled = body.enabled;
+    return reply.send({ customAsrEnabled: appConfig.customAsr.enabled });
+  });
 }

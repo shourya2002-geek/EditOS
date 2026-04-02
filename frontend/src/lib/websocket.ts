@@ -253,3 +253,119 @@ export function useRenderProgress() {
 
   return { jobs, connect: ws.connect, disconnect: ws.disconnect, send: ws.send, status: ws.status };
 }
+
+// ---------------------------------------------------------------------------
+// Custom Whisper voice hook — records mic audio and sends to self-hosted ASR
+// ---------------------------------------------------------------------------
+export function useCustomWhisperVoice() {
+  const [isListening, setIsListening] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  const [commands, setCommands] = useState<Array<{ text: string; timestamp: number }>>([]);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recordingLoopRef = useRef<boolean>(false);
+
+  const recordChunk = useCallback(async (): Promise<Blob | null> => {
+    const stream = streamRef.current;
+    if (!stream) return null;
+
+    return new Promise((resolve) => {
+      const chunks: Blob[] = [];
+      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        resolve(chunks.length > 0 ? new Blob(chunks, { type: 'audio/webm' }) : null);
+      };
+
+      recorder.start();
+
+      // Record for 4 seconds then stop
+      setTimeout(() => {
+        if (recorder.state === 'recording') {
+          recorder.stop();
+        }
+      }, 4000);
+    });
+  }, []);
+
+  const transcribeBlob = useCallback(async (blob: Blob): Promise<string | null> => {
+    try {
+      const formData = new FormData();
+      formData.append('audio', blob, 'recording.webm');
+
+      const res = await fetch('/api/v1/asr/transcribe', {
+        method: 'POST',
+        headers: { 'x-creator-id': 'dev-creator' },
+        body: formData,
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.text?.trim() || null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const startListening = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      setIsListening(true);
+      recordingLoopRef.current = true;
+
+      // Continuous recording loop
+      const loop = async () => {
+        while (recordingLoopRef.current) {
+          const blob = await recordChunk();
+          if (!blob || !recordingLoopRef.current) break;
+
+          setTranscript('Processing...');
+          const text = await transcribeBlob(blob);
+
+          if (text && recordingLoopRef.current) {
+            const hallucinations = ['thank you', 'see you', 'bye', 'subscribe', 'next time'];
+            const isHallucination = hallucinations.some(h => text.toLowerCase().includes(h)) && text.split(' ').length < 8;
+
+            if (!isHallucination) {
+              setCommands((prev) => [...prev, { text, timestamp: Date.now() }]);
+            }
+          }
+          setTranscript('');
+        }
+      };
+      loop();
+    } catch {
+      console.error('Microphone permission denied');
+    }
+  }, [recordChunk, transcribeBlob]);
+
+  const stopListening = useCallback(() => {
+    recordingLoopRef.current = false;
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+    mediaRecorderRef.current = null;
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+
+    setIsListening(false);
+    setTranscript('');
+  }, []);
+
+  return {
+    isListening,
+    transcript,
+    commands,
+    startListening,
+    stopListening,
+    wsStatus: isListening ? ('connected' as const) : ('disconnected' as const),
+  };
+}

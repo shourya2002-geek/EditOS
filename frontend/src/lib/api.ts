@@ -260,6 +260,40 @@ class ApiClient {
     return res.json();
   }
 
+  // --- ASR (Custom Whisper) ---
+  async getASRConfig() {
+    return this.request<{
+      customAsrEnabled: boolean;
+      customAsrUrl: string;
+      customAsrStatus: 'online' | 'offline' | 'disabled';
+      model?: string;
+      device?: string;
+    }>('/asr/config');
+  }
+
+  async toggleASR(enabled: boolean) {
+    return this.request<{ customAsrEnabled: boolean }>('/asr/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    });
+  }
+
+  async transcribeAudio(audioBlob: Blob): Promise<{ text: string; model: string; provider: string }> {
+    const formData = new FormData();
+    formData.append('audio', audioBlob, 'recording.wav');
+
+    const res = await fetch(`${this.baseUrl}/asr/transcribe`, {
+      method: 'POST',
+      headers: { 'x-creator-id': 'dev-creator' },
+      body: formData,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error((body as any).error ?? `Transcription failed: ${res.status}`);
+    }
+    return res.json();
+  }
+
   // --- Metrics ---
   async getMetrics() {
     return this.request<any>('/metrics');

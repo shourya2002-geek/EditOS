@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback, useSyncExternalStore, useMemo } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
-import { useVoiceWebSocket } from '@/lib/websocket';
+import { useVoiceWebSocket, useCustomWhisperVoice } from '@/lib/websocket';
 import { ClientEditStack } from '@/lib/editStack';
 import type { EditCommit, EditOperation } from '@/lib/editStack';
 import { DEMO_STEPS, typewriterEffect, playDemoAudio, stopDemoAudio, listenForSpeech } from '@/lib/demoScript';
@@ -94,7 +94,20 @@ export default function EditorPage() {
   const appliedOps = effectiveOps;
 
   // Voice
-  const voice = useVoiceWebSocket();
+  // Voice — ASR provider selection
+  const [asrProvider, setAsrProvider] = useState<'browser' | 'custom-whisper'>('browser');
+  const browserVoice = useVoiceWebSocket();
+  const whisperVoice = useCustomWhisperVoice();
+  const voice = asrProvider === 'custom-whisper' ? whisperVoice : browserVoice;
+
+  // Fetch ASR config on mount to determine which provider to use
+  useEffect(() => {
+    api.getASRConfig().then((cfg) => {
+      if (cfg.customAsrEnabled && cfg.customAsrStatus === 'online') {
+        setAsrProvider('custom-whisper');
+      }
+    }).catch(() => {});
+  }, []);
 
   // Share / Post modal
   const [showShareModal, setShowShareModal] = useState(false);
@@ -1193,6 +1206,14 @@ export default function EditorPage() {
               <span className="text-[10px] text-emerald-400 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 Live
+              </span>
+              {/* ASR provider badge */}
+              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-mono ${
+                asrProvider === 'custom-whisper'
+                  ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                  : 'bg-surface-3 text-white/30'
+              }`}>
+                {asrProvider === 'custom-whisper' ? 'Whisper' : 'Browser'}
               </span>
               <button
                 onClick={() => {

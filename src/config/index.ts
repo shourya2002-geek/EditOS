@@ -66,6 +66,13 @@ export interface AppConfig {
     silenceTimeoutMs: number;
   };
 
+  // Custom ASR (self-hosted Whisper)
+  customAsr: {
+    enabled: boolean;
+    url: string;       // e.g. http://35.244.14.245:8090
+    timeoutMs: number;
+  };
+
   // Latency budgets (ms)
   latency: {
     voiceToIntent: number;
@@ -129,6 +136,12 @@ export function loadConfig(): AppConfig {
       chunkSizeMs: 100,
       vadThreshold: 0.5,
       silenceTimeoutMs: 1500,
+    },
+
+    customAsr: {
+      enabled: (process.env.CUSTOM_ASR_ENABLED ?? 'false') === 'true',
+      url: process.env.CUSTOM_ASR_URL ?? 'http://35.244.14.245:8090',
+      timeoutMs: parseInt(process.env.CUSTOM_ASR_TIMEOUT_MS ?? '10000'),
     },
 
     latency: {

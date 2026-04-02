@@ -1,14 +1,50 @@
 'use client';
 
-import { useState } from 'react';
-import { Settings, Save, Server, Key, Cpu, Palette, Bell, Globe } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Settings, Save, Server, Key, Cpu, Palette, Bell, Globe, Mic } from 'lucide-react';
+import { api } from '@/lib/api';
 
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState('general');
+  const [asrEnabled, setAsrEnabled] = useState(false);
+  const [asrStatus, setAsrStatus] = useState<'online' | 'offline' | 'disabled' | 'loading'>('loading');
+  const [asrModel, setAsrModel] = useState('');
+  const [asrToggling, setAsrToggling] = useState(false);
+
+  // Load ASR config on mount and when section changes
+  useEffect(() => {
+    if (activeSection === 'voice') {
+      setAsrStatus('loading');
+      api.getASRConfig().then((cfg) => {
+        setAsrEnabled(cfg.customAsrEnabled);
+        setAsrStatus(cfg.customAsrStatus);
+        setAsrModel(cfg.model ?? '');
+      }).catch(() => {
+        setAsrStatus('offline');
+      });
+    }
+  }, [activeSection]);
+
+  const handleASRToggle = async () => {
+    setAsrToggling(true);
+    try {
+      const res = await api.toggleASR(!asrEnabled);
+      setAsrEnabled(res.customAsrEnabled);
+      // Re-check health
+      const cfg = await api.getASRConfig();
+      setAsrStatus(cfg.customAsrStatus);
+      setAsrModel(cfg.model ?? '');
+    } catch {
+      // Revert
+    } finally {
+      setAsrToggling(false);
+    }
+  };
 
   const sections = [
     { key: 'general', label: 'General', icon: Settings },
     { key: 'api', label: 'API & Models', icon: Key },
+    { key: 'voice', label: 'Voice / ASR', icon: Mic },
     { key: 'render', label: 'Rendering', icon: Cpu },
     { key: 'appearance', label: 'Appearance', icon: Palette },
     { key: 'notifications', label: 'Notifications', icon: Bell },
@@ -94,6 +130,84 @@ export default function SettingsPage() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {activeSection === 'voice' && (
+            <div className="card p-6 space-y-5">
+              <h2 className="text-lg font-semibold">Voice / ASR Provider</h2>
+              <p className="text-xs text-white/40">
+                Choose between the browser&apos;s built-in speech recognition or your self-hosted Whisper model for voice commands.
+              </p>
+
+              {/* Provider toggle */}
+              <div className="flex items-center justify-between p-4 rounded-lg bg-surface-2 border border-surface-4/50">
+                <div>
+                  <span className="text-sm font-medium">Custom Whisper ASR</span>
+                  <span className="text-xs text-white/30 block mt-0.5">
+                    Use self-hosted Whisper model (GPU-accelerated, better accuracy)
+                  </span>
+                </div>
+                <label className="relative inline-flex cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={asrEnabled}
+                    onChange={handleASRToggle}
+                    disabled={asrToggling}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-surface-4 rounded-full peer peer-checked:bg-brand-500 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-4" />
+                </label>
+              </div>
+
+              {/* Provider comparison */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className={`p-4 rounded-lg border ${!asrEnabled ? 'border-brand-500/40 bg-brand-500/5' : 'border-surface-4/50 bg-surface-2'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Globe className="w-4 h-4" />
+                    <span className="text-sm font-medium">Browser STT</span>
+                  </div>
+                  <ul className="text-xs text-white/40 space-y-1">
+                    <li>• Chrome/Edge SpeechRecognition API</li>
+                    <li>• Zero latency (runs locally)</li>
+                    <li>• English only, basic accuracy</li>
+                    <li>• No GPU required</li>
+                  </ul>
+                  {!asrEnabled && <span className="text-[10px] text-brand-300 mt-2 block">Active</span>}
+                </div>
+                <div className={`p-4 rounded-lg border ${asrEnabled ? 'border-brand-500/40 bg-brand-500/5' : 'border-surface-4/50 bg-surface-2'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Server className="w-4 h-4" />
+                    <span className="text-sm font-medium">Custom Whisper</span>
+                  </div>
+                  <ul className="text-xs text-white/40 space-y-1">
+                    <li>• Self-hosted whisper-small on NVIDIA L4</li>
+                    <li>• Higher accuracy, multilingual</li>
+                    <li>• ~2-3s per chunk (network + inference)</li>
+                    <li>• Requires running GPU VM</li>
+                  </ul>
+                  {asrEnabled && <span className="text-[10px] text-brand-300 mt-2 block">Active</span>}
+                </div>
+              </div>
+
+              {/* Status indicator */}
+              {asrEnabled && (
+                <div className={`p-3 rounded-lg border text-xs flex items-center gap-2 ${
+                  asrStatus === 'online' ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-300' :
+                  asrStatus === 'loading' ? 'border-amber-500/30 bg-amber-500/5 text-amber-300' :
+                  'border-red-500/30 bg-red-500/5 text-red-300'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${
+                    asrStatus === 'online' ? 'bg-emerald-400' :
+                    asrStatus === 'loading' ? 'bg-amber-400 animate-pulse' :
+                    'bg-red-400'
+                  }`} />
+                  {asrStatus === 'online' && `Connected — ${asrModel} (GPU)`}
+                  {asrStatus === 'loading' && 'Checking connection...'}
+                  {asrStatus === 'offline' && 'Server unreachable — check VM is running'}
+                  {asrStatus === 'disabled' && 'Disabled'}
+                </div>
+              )}
             </div>
           )}
 

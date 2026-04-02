@@ -18,6 +18,7 @@ import { ExperimentEngine } from '../core/learning/experimentEngine.js';
 import { CollaborationManager } from '../core/collaboration/collaborationEngine.js';
 import { VoicePipeline } from '../core/voice/voicePipeline.js';
 import { AgentRouter } from '../core/agents/agentRouter.js';
+export { WhisperSTTService } from './whisperSTTService.js';
 import { OrchestratorAgent } from '../core/agents/orchestratorAgent.js';
 import { MistralClient } from '../core/agents/mistralClient.js';
 import type { EditingStrategy } from '../types/dsl.js';
