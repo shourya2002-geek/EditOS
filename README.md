@@ -11,7 +11,8 @@ The Agentic Operating System for Creators on the Move. Upload your content, desc
 ## Features
 
 - **Conversational AI Editing** — Describe edits in plain English; Mistral AI returns structured operations (cut, trim, zoom, speed, caption, color grade, music, fades, and more)
-- **Voice Pipeline** — Real-time voice-to-edit via WebSocket with voice activity detection and &lt;2s target latency
+- **Voice Pipeline** — Real-time voice-to-edit via WebSocket with voice activity detection and <2s target latency
+- **Custom ASR (Self-Hosted Whisper)** — Feature-flagged alternative to browser SpeechRecognition: a self-hosted OpenAI Whisper model running on a GPU VM (NVIDIA L4) with real-time streaming transcription, togglable from the Settings UI
 - **Non-destructive Edit Stack** — Client-side commit-based history with undo/redo, commit toggling, and automatic conflict resolution
 - **Multi-Agent Architecture** — 5 specialized Mistral agents (Orchestrator, Intent, Strategy, Collaboration, Publishing) routed via an agent router
 - **Video Rendering** — FFmpeg-based render pipeline with GPU acceleration (Apple VideoToolbox, NVIDIA, AMD), worker pool, and job queue
@@ -98,6 +99,9 @@ MISTRAL_API_KEY=your_api_key_here
 | `RENDER_CONCURRENCY` | `2` | Parallel render workers |
 | `ANALYSIS_CONCURRENCY` | `4` | Parallel analysis workers |
 | `CORS_ORIGIN` | `*` | CORS allowed origin |
+| `CUSTOM_ASR_ENABLED` | `false` | Enable self-hosted Whisper ASR |
+| `CUSTOM_ASR_URL` | `http://35.244.14.245:8090` | Whisper ASR server URL |
+| `CUSTOM_ASR_TIMEOUT_MS` | `30000` | ASR request timeout (ms) |
 
 </details>
 
@@ -144,7 +148,13 @@ Open [http://localhost:3001](http://localhost:3001) in your browser.
 │  │  Intent   │ │  Strategy │ │  Learning │ │  Brain   │ │
 │  │  Parser   │ │  DSL      │ │  Profiles │ │  Engines │ │
 │  └───────────┘ └───────────┘ └───────────┘ └──────────┘ │
-└──────────────────────────────────────────────────────────┘
+└──────────────────────────┬───────────────────────────────┘
+                           │ (optional) POST /transcribe
+              ┌────────────▼─────────────────┐
+              │   Self-Hosted Whisper ASR     │
+              │   GPU VM (NVIDIA L4, CUDA)   │
+              │   openai/whisper-small        │
+              └──────────────────────────────┘
 ```
 
 ### Multi-Agent System
@@ -306,6 +316,17 @@ All REST endpoints are prefixed with `/api/v1`. The backend also exposes WebSock
 
 </details>
 
+<details>
+<summary><strong>Custom ASR</strong></summary>
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/asr/config` | Get current ASR provider & status |
+| `POST` | `/api/v1/asr/transcribe` | Transcribe audio (multipart `audio` field) |
+| `POST` | `/api/v1/asr/toggle` | Toggle custom ASR on/off (`{ "enabled": true }`) |
+
+</details>
+
 ### WebSocket Endpoints
 
 | Path | Description |
@@ -356,10 +377,134 @@ All REST endpoints are prefixed with `/api/v1`. The backend also exposes WebSock
 │           ├── editStack.ts    # Non-destructive edit stack
 │           ├── types.ts        # Frontend types
 │           └── websocket.ts    # WebSocket hooks
+├── asr_server.py               # Self-hosted Whisper ASR server (deployed to GPU VM)
 ├── storage/                    # Uploads, temp, output (gitignored)
 ├── .env.example                # Environment template
 └── package.json
 ```
+
+---
+
+## Custom ASR (Self-Hosted Whisper)
+
+EditOS ships with an optional self-hosted ASR pipeline as an alternative to the browser's built-in `SpeechRecognition` API. It runs **OpenAI Whisper Small** on a GPU VM and streams transcriptions back to the editor in near real-time.
+
+### Why
+
+| | Browser SpeechRecognition | Custom Whisper |
+|---|---|---|
+| **Accuracy** | Basic | Higher (Whisper Small, 244M params) |
+| **Languages** | English-centric | 99 languages |
+| **Browser support** | Chrome / Edge / Safari only | Any browser (uses MediaRecorder) |
+| **Privacy** | Audio sent to Google/Apple | Audio stays on your own infrastructure |
+| **Latency** | ~0s (streaming) | ~1–2s per update (growing-window transcription) |
+
+### Infrastructure
+
+| Component | Details |
+|---|---|
+| **Cloud** | Google Cloud Platform, project `whisper-gpu-mvp` |
+| **VM** | `whisper-gpu-vm`, zone `asia-south1-a`, machine type `g2-standard-4` |
+| **GPU** | NVIDIA L4 (24 GB VRAM) |
+| **Driver** | NVIDIA 570.211.01, CUDA 12.8 |
+| **Model** | `openai/whisper-small` (float16 on CUDA) |
+| **Server** | Python HTTP server (`asr_server.py`) on port 8090 |
+| **Firewall** | GCP rule `allow-asr-8090` (TCP 8090, tag `http-server`) |
+
+### ASR Server
+
+`asr_server.py` is a lightweight Python HTTP server that loads Whisper once into GPU memory and serves two endpoints:
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/health` | GET | Returns model name, device, status |
+| `/transcribe` | POST | Accepts multipart audio file, returns `{ "text": "..." }` |
+
+#### Deploy to VM
+
+```bash
+# SSH into the VM
+ssh -i ~/.ssh/google_compute_engine <USER>@<VM_EXTERNAL_IP>
+
+# Copy the server script
+scp -i ~/.ssh/google_compute_engine asr_server.py <USER>@<VM_EXTERNAL_IP>:/tmp/
+
+# On the VM — install dependencies & start
+pip install transformers torch accelerate soundfile ffmpeg-python
+nohup python3 /tmp/asr_server.py > /tmp/asr.log 2>&1 &
+
+# Verify
+curl http://<VM_EXTERNAL_IP>:8090/health
+# → {"status": "ok", "model": "openai/whisper-small", "device": "cuda"}
+```
+
+### Frontend Integration
+
+The frontend provides two interchangeable voice hooks with an identical interface:
+
+| Hook | Provider | How it works |
+|---|---|---|
+| `useVoiceWebSocket()` | Browser SpeechRecognition | Native streaming API, interim results word-by-word |
+| `useCustomWhisperVoice()` | Self-hosted Whisper | Records mic via MediaRecorder, transcribes a growing audio window every ~1.5s, shows incremental results; finalizes as a command after 2s silence |
+
+The editor page selects the active hook based on the ASR config:
+
+```typescript
+const browserVoice = useVoiceWebSocket();
+const whisperVoice = useCustomWhisperVoice();
+const voice = asrProvider === 'custom-whisper' ? whisperVoice : browserVoice;
+```
+
+### How to Enable
+
+1. **Via UI** — Go to **Settings → Voice / ASR** and toggle **Custom Whisper** on. The settings page shows a live health indicator for the GPU VM connection.
+
+2. **Via environment** — Set in `.env` and restart the backend:
+   ```
+   CUSTOM_ASR_ENABLED=true
+   CUSTOM_ASR_URL=http://<VM_EXTERNAL_IP>:8090
+   ```
+
+3. **At runtime** — Call the toggle API:
+   ```bash
+   curl -X POST http://localhost:3000/api/v1/asr/toggle \
+     -H 'Content-Type: application/json' \
+     -H 'x-creator-id: dev-creator' \
+     -d '{"enabled": true}'
+   ```
+
+Once enabled, the editor toolbar shows a **"Whisper"** badge next to the mic button (instead of **"Browser"**), and all voice input is routed through the self-hosted model.
+
+### Data Flow
+
+```
+┌──────────┐  MediaRecorder   ┌──────────────┐  POST /asr/transcribe  ┌─────────────┐
+│  Browser  │ ──── audio ────▶│  EditOS       │ ──── proxy ──────────▶│  GPU VM     │
+│  Mic      │  (500ms chunks) │  Backend:3000 │                       │  Whisper    │
+└──────────┘                  └──────┬───────┘◀── { text } ──────────│  :8090      │
+                                     │                                └─────────────┘
+                              transcript (interim)
+                                     │
+                              ┌──────▼───────┐
+                              │  Editor UI   │
+                              │  Chat Panel  │
+                              │  (live text) │
+                              └──────────────┘
+```
+
+### Cost Management
+
+The GPU VM is billed per-hour while running. To save costs:
+
+```bash
+# Stop the VM when not in use
+gcloud compute instances stop whisper-gpu-vm --zone=asia-south1-a --project=whisper-gpu-mvp
+
+# Start it again later
+gcloud compute instances start whisper-gpu-vm --zone=asia-south1-a --project=whisper-gpu-mvp
+```
+
+The ASR server must be restarted after the VM boots (it doesn't auto-start).
 
 ---
 

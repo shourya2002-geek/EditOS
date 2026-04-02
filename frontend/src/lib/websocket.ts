@@ -256,44 +256,32 @@ export function useRenderProgress() {
 
 // ---------------------------------------------------------------------------
 // Custom Whisper voice hook — records mic audio and sends to self-hosted ASR
+// Uses a growing audio window with periodic transcription for real-time feel.
 // ---------------------------------------------------------------------------
 export function useCustomWhisperVoice() {
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [commands, setCommands] = useState<Array<{ text: string; timestamp: number }>>([]);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const recordingLoopRef = useRef<boolean>(false);
+  const activeRef = useRef(false);
+  // Accumulated audio chunks for the current utterance
+  const chunksRef = useRef<Blob[]>([]);
+  const inflightRef = useRef(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTextRef = useRef('');
 
-  const recordChunk = useCallback(async (): Promise<Blob | null> => {
-    const stream = streamRef.current;
-    if (!stream) return null;
+  const HALLUCINATIONS = ['thank you', 'see you', 'bye', 'subscribe', 'next time'];
 
-    return new Promise((resolve) => {
-      const chunks: Blob[] = [];
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
-      mediaRecorderRef.current = recorder;
+  const transcribeAccumulated = useCallback(async () => {
+    if (chunksRef.current.length === 0 || inflightRef.current || !activeRef.current) return;
+    inflightRef.current = true;
 
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
-      };
+    // Snapshot current chunks
+    const blob = new Blob([...chunksRef.current], { type: 'audio/webm' });
 
-      recorder.onstop = () => {
-        resolve(chunks.length > 0 ? new Blob(chunks, { type: 'audio/webm' }) : null);
-      };
-
-      recorder.start();
-
-      // Record for 4 seconds then stop
-      setTimeout(() => {
-        if (recorder.state === 'recording') {
-          recorder.stop();
-        }
-      }, 4000);
-    });
-  }, []);
-
-  const transcribeBlob = useCallback(async (blob: Blob): Promise<string | null> => {
     try {
       const formData = new FormData();
       formData.append('audio', blob, 'recording.webm');
@@ -303,11 +291,35 @@ export function useCustomWhisperVoice() {
         headers: { 'x-creator-id': 'dev-creator' },
         body: formData,
       });
-      if (!res.ok) return null;
+      if (!res.ok) return;
       const data = await res.json();
-      return data.text?.trim() || null;
+      const text = data.text?.trim() || '';
+
+      if (!activeRef.current) return;
+
+      const isHallucination =
+        HALLUCINATIONS.some((h) => text.toLowerCase().includes(h)) && text.split(' ').length < 8;
+
+      if (text && !isHallucination) {
+        lastTextRef.current = text;
+        setTranscript(text);
+
+        // Reset finalization timer — finalize after 2s of no new text
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = setTimeout(() => {
+          if (lastTextRef.current && activeRef.current) {
+            setCommands((prev) => [...prev, { text: lastTextRef.current, timestamp: Date.now() }]);
+            // Reset for next utterance
+            chunksRef.current = [];
+            lastTextRef.current = '';
+            setTranscript('');
+          }
+        }, 2000);
+      }
     } catch {
-      return null;
+      // ignore transcription errors
+    } finally {
+      inflightRef.current = false;
     }
   }, []);
 
@@ -315,47 +327,60 @@ export function useCustomWhisperVoice() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
+      activeRef.current = true;
+      chunksRef.current = [];
+      lastTextRef.current = '';
       setIsListening(true);
-      recordingLoopRef.current = true;
 
-      // Continuous recording loop
-      const loop = async () => {
-        while (recordingLoopRef.current) {
-          const blob = await recordChunk();
-          if (!blob || !recordingLoopRef.current) break;
+      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+      mediaRecorderRef.current = recorder;
 
-          setTranscript('Processing...');
-          const text = await transcribeBlob(blob);
-
-          if (text && recordingLoopRef.current) {
-            const hallucinations = ['thank you', 'see you', 'bye', 'subscribe', 'next time'];
-            const isHallucination = hallucinations.some(h => text.toLowerCase().includes(h)) && text.split(' ').length < 8;
-
-            if (!isHallucination) {
-              setCommands((prev) => [...prev, { text, timestamp: Date.now() }]);
-            }
-          }
-          setTranscript('');
-        }
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
       };
-      loop();
+
+      // Start with timeslice — fires ondataavailable every 500ms
+      recorder.start(500);
+
+      // Transcribe the growing audio buffer every 1.5s
+      intervalRef.current = setInterval(() => {
+        if (activeRef.current) transcribeAccumulated();
+      }, 1500);
     } catch {
       console.error('Microphone permission denied');
     }
-  }, [recordChunk, transcribeBlob]);
+  }, [transcribeAccumulated]);
 
   const stopListening = useCallback(() => {
-    recordingLoopRef.current = false;
+    activeRef.current = false;
+
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.stop();
     }
     mediaRecorderRef.current = null;
+
+    // Finalize any remaining text as a command
+    if (lastTextRef.current) {
+      const finalText = lastTextRef.current;
+      setCommands((prev) => [...prev, { text: finalText, timestamp: Date.now() }]);
+    }
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
 
+    chunksRef.current = [];
+    lastTextRef.current = '';
     setIsListening(false);
     setTranscript('');
   }, []);
