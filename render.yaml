@@ -35,11 +35,6 @@ services:
           name: editos-redis
           type: redis
           property: port
-      - key: REDIS_PASSWORD
-        fromService:
-          name: editos-redis
-          type: redis
-          property: password
       - key: CORS_ORIGIN
         sync: false
       - key: CUSTOM_ASR_ENABLED
